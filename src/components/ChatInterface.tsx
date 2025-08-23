@@ -11,17 +11,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DatabaseService, { ChatMessage, User } from '../database/DatabaseService';
+import SearchBar from './SearchBar';
+import HeaderMenu from './HeaderMenu';
+import BottomNavigation from './BottomNavigation';
+import FindFriendsScreen from '../screens/FindFriendsScreen';
+import CallsScreen from '../screens/CallsScreen';
 
 interface ChatInterfaceProps {
   currentUser: User;
 }
 
+type ActiveTab = 'chat' | 'find' | 'call';
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
   const insets = useSafeAreaInsets();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
 
   useEffect(() => {
     loadUsers();
@@ -33,11 +43,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     }
   }, [selectedUser]);
 
+  useEffect(() => {
+    filterUsers();
+  }, [searchQuery, users]);
+
   const loadUsers = async () => {
     try {
       const allUsers = await DatabaseService.getAllUsers();
       const otherUsers = allUsers.filter(user => user.id !== currentUser.id);
       setUsers(otherUsers);
+      setFilteredUsers(otherUsers);
       if (otherUsers.length > 0) {
         setSelectedUser(otherUsers[0]);
       }
@@ -60,6 +75,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     }
   };
 
+  const filterUsers = () => {
+    if (!searchQuery.trim()) {
+      setFilteredUsers(users);
+      return;
+    }
+
+    const filtered = users.filter(user =>
+      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setFilteredUsers(filtered);
+  };
+
   const sendMessage = async () => {
     if (!message.trim() || !selectedUser) return;
 
@@ -75,6 +102,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     } catch (error) {
       console.error('Error sending message:', error);
     }
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
+
+  const handleTabPress = (tab: ActiveTab) => {
+    setActiveTab(tab);
+  };
+
+  const handleMenuPress = () => {
+    console.log('Menu pressed');
+  };
+
+  const handleBackToChat = () => {
+    setActiveTab('chat');
   };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
@@ -126,6 +169,100 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     </TouchableOpacity>
   );
 
+  const renderChatScreen = () => (
+    <>
+      {/* Search Bar */}
+      <SearchBar onSearch={handleSearch} placeholder="Search users..." />
+
+      {/* Users List */}
+      <View style={styles.usersList}>
+        <Text style={styles.usersTitle}>Available Users</Text>
+        <FlatList
+          data={filteredUsers}
+          renderItem={renderUserItem}
+          keyExtractor={(item) => item.id.toString()}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.usersFlatList}
+          contentContainerStyle={styles.usersContent}
+        />
+      </View>
+
+      {/* Chat Container */}
+      <View style={styles.chatContainer}>
+        {messages.length === 0 ? (
+          <View style={styles.emptyChat}>
+            <Text style={styles.emptyChatIcon}>💬</Text>
+            <Text style={styles.emptyChatTitle}>No messages yet</Text>
+            <Text style={styles.emptyChatSubtitle}>
+              Start a conversation by sending a message
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id.toString()}
+            style={styles.messagesList}
+            inverted
+            contentContainerStyle={styles.messagesContent}
+          />
+        )}
+      </View>
+
+      {/* Input Container */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.inputContainer}
+      >
+        <View style={styles.inputWrapper}>
+          <TextInput
+            style={styles.input}
+            placeholder="Type a message..."
+            placeholderTextColor="#999"
+            value={message}
+            onChangeText={setMessage}
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              !message.trim() && styles.sendButtonDisabled
+            ]}
+            onPress={sendMessage}
+            disabled={!message.trim()}
+          >
+            <Text style={styles.sendButtonText}>📤</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </>
+  );
+
+  const renderCurrentScreen = () => {
+    switch (activeTab) {
+      case 'chat':
+        return renderChatScreen();
+      case 'find':
+        return (
+          <FindFriendsScreen 
+            currentUser={currentUser} 
+            onBack={handleBackToChat} 
+          />
+        );
+      case 'call':
+        return (
+          <CallsScreen 
+            currentUser={currentUser} 
+            onBack={handleBackToChat} 
+          />
+        );
+      default:
+        return renderChatScreen();
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -137,77 +274,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Chat</Text>
             <Text style={styles.headerSubtitle}>
-              {selectedUser ? `Chatting with ${selectedUser.email}` : 'Select a user to chat'}
+              {activeTab === 'chat' && selectedUser 
+                ? `Chatting with ${selectedUser.email}` 
+                : activeTab === 'find' 
+                ? 'Find new friends'
+                : 'Call history'
+              }
             </Text>
           </View>
+          <HeaderMenu onMenuPress={handleMenuPress} />
         </View>
       </View>
 
       <View style={styles.content}>
-        {/* Users List */}
-        <View style={styles.usersList}>
-          <Text style={styles.usersTitle}>Available Users</Text>
-          <FlatList
-            data={users}
-            renderItem={renderUserItem}
-            keyExtractor={(item) => item.id.toString()}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.usersFlatList}
-            contentContainerStyle={styles.usersContent}
-          />
-        </View>
-
-        {/* Chat Container */}
-        <View style={styles.chatContainer}>
-          {messages.length === 0 ? (
-            <View style={styles.emptyChat}>
-              <Text style={styles.emptyChatIcon}>💬</Text>
-              <Text style={styles.emptyChatTitle}>No messages yet</Text>
-              <Text style={styles.emptyChatSubtitle}>
-                Start a conversation by sending a message
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={messages}
-              renderItem={renderMessage}
-              keyExtractor={(item) => item.id.toString()}
-              style={styles.messagesList}
-              inverted
-              contentContainerStyle={styles.messagesContent}
-            />
-          )}
-        </View>
-
-        {/* Input Container */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.inputContainer}
-        >
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.input}
-              placeholder="Type a message..."
-              placeholderTextColor="#999"
-              value={message}
-              onChangeText={setMessage}
-              multiline
-              maxLength={500}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                !message.trim() && styles.sendButtonDisabled
-              ]}
-              onPress={sendMessage}
-              disabled={!message.trim()}
-            >
-              <Text style={styles.sendButtonText}>📤</Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
+        {renderCurrentScreen()}
       </View>
+
+      {/* Bottom Navigation */}
+      <BottomNavigation 
+        activeTab={activeTab} 
+        onTabPress={handleTabPress} 
+      />
 
       {/* Bottom Safe Area */}
       <View style={{ height: insets.bottom }} />

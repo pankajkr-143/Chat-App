@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -92,113 +93,120 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
           </Text>
         </View>
 
-        {/* Form Section */}
-        <View style={styles.formContainer}>
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>
-              {isLogin ? 'Sign In' : 'Sign Up'}
-            </Text>
-            <Text style={styles.formSubtitle}>
-              {isLogin 
-                ? 'Sign in to continue chatting' 
-                : 'Join our community and start chatting'
-              }
-            </Text>
+        {/* Scrollable Form Section */}
+        <ScrollView 
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.formContainer}>
+            <View style={styles.formCard}>
+              <Text style={styles.formTitle}>
+                {isLogin ? 'Sign In' : 'Sign Up'}
+              </Text>
+              <Text style={styles.formSubtitle}>
+                {isLogin 
+                  ? 'Sign in to continue chatting' 
+                  : 'Join our community and start chatting'
+                }
+              </Text>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email Address</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>📧</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#999"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputIcon}>🔒</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Text style={styles.eyeText}>
-                    {showPassword ? '👁️' : '👁️‍🗨️'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {!isLogin && (
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirm Password</Text>
+                <Text style={styles.label}>Email Address</Text>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputIcon}>📧</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#999"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Password</Text>
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputIcon}>🔒</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Confirm your password"
+                    placeholder="Enter your password"
                     placeholderTextColor="#999"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry={!showConfirmPassword}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
                     autoCapitalize="none"
                   />
                   <TouchableOpacity
                     style={styles.eyeButton}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    onPress={() => setShowPassword(!showPassword)}
                   >
                     <Text style={styles.eyeText}>
-                      {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
+                      {showPassword ? '👁️' : '👁️‍🗨️'}
                     </Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            )}
 
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleSubmit}
-            >
-              <Text style={styles.submitButtonText}>
-                {isLogin ? 'Sign In' : 'Create Account'}
-              </Text>
-            </TouchableOpacity>
+              {!isLogin && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Confirm Password</Text>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.inputIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirm your password"
+                      placeholderTextColor="#999"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      <Text style={styles.eyeText}>
+                        {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.switchContainer}>
-              <Text style={styles.switchText}>
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
-              </Text>
-              <TouchableOpacity onPress={toggleMode}>
-                <Text style={styles.switchButton}>
-                  {isLogin ? 'Sign Up' : 'Sign In'}
+              <TouchableOpacity
+                style={styles.submitButton}
+                onPress={handleSubmit}
+              >
+                <Text style={styles.submitButtonText}>
+                  {isLogin ? 'Sign In' : 'Create Account'}
                 </Text>
               </TouchableOpacity>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.switchContainer}>
+                <Text style={styles.switchText}>
+                  {isLogin ? "Don't have an account? " : "Already have an account? "}
+                </Text>
+                <TouchableOpacity onPress={toggleMode}>
+                  <Text style={styles.switchButton}>
+                    {isLogin ? 'Sign Up' : 'Sign In'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </ScrollView>
 
         {/* Footer */}
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 20, 20) }]}>
@@ -221,7 +229,7 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#075E54',
-    paddingBottom: 50,
+    paddingBottom: 40,
     alignItems: 'center',
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
@@ -266,10 +274,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.9,
   },
-  formContainer: {
+  scrollContainer: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
+  formContainer: {
     paddingHorizontal: 20,
     paddingTop: 30,
+    paddingBottom: 20,
   },
   formCard: {
     backgroundColor: '#ffffff',
@@ -388,6 +403,7 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 20,
     alignItems: 'center',
+    backgroundColor: '#F0F0F0',
   },
   footerText: {
     fontSize: 14,
