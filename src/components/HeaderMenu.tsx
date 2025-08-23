@@ -13,6 +13,7 @@ const { width, height } = Dimensions.get('window');
 
 interface HeaderMenuProps {
   onMenuPress: () => void;
+  onNavigateToScreen: (screen: string) => void;
 }
 
 interface MenuItem {
@@ -22,7 +23,7 @@ interface MenuItem {
   onPress: () => void;
 }
 
-const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
+const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress, onNavigateToScreen }) => {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
 
@@ -32,7 +33,7 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
       label: 'Profile',
       icon: '👤',
       onPress: () => {
-        console.log('Profile pressed');
+        onNavigateToScreen('profile');
         closeMenu();
       },
     },
@@ -41,7 +42,7 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
       label: 'Groups',
       icon: '👥',
       onPress: () => {
-        console.log('Groups pressed');
+        onNavigateToScreen('groups');
         closeMenu();
       },
     },
@@ -50,7 +51,7 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
       label: 'Settings',
       icon: '⚙️',
       onPress: () => {
-        console.log('Settings pressed');
+        onNavigateToScreen('settings');
         closeMenu();
       },
     },
@@ -59,7 +60,7 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
       label: 'About',
       icon: 'ℹ️',
       onPress: () => {
-        console.log('About pressed');
+        onNavigateToScreen('about');
         closeMenu();
       },
     },
@@ -68,7 +69,7 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress }) => {
       label: 'Requests',
       icon: '📨',
       onPress: () => {
-        console.log('Requests pressed');
+        onNavigateToScreen('requests');
         closeMenu();
       },
     },

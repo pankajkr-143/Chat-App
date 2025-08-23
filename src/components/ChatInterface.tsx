@@ -14,233 +14,113 @@ import DatabaseService, { ChatMessage, User } from '../database/DatabaseService'
 import SearchBar from './SearchBar';
 import HeaderMenu from './HeaderMenu';
 import BottomNavigation from './BottomNavigation';
+import FriendsListScreen from '../screens/FriendsListScreen';
 import FindFriendsScreen from '../screens/FindFriendsScreen';
 import CallsScreen from '../screens/CallsScreen';
+import ChatScreen from '../screens/ChatScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import GroupsScreen from '../screens/GroupsScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import AboutScreen from '../screens/AboutScreen';
+import RequestsScreen from '../screens/RequestsScreen';
 
 interface ChatInterfaceProps {
   currentUser: User;
 }
 
 type ActiveTab = 'chat' | 'find' | 'call';
+type ChatView = 'friends-list' | 'individual-chat';
+type MenuScreen = 'profile' | 'groups' | 'settings' | 'about' | 'requests' | null;
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [chatView, setChatView] = useState<ChatView>('friends-list');
+  const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
-
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  useEffect(() => {
-    if (selectedUser) {
-      loadChatHistory();
-    }
-  }, [selectedUser]);
-
-  useEffect(() => {
-    filterUsers();
-  }, [searchQuery, users]);
-
-  const loadUsers = async () => {
-    try {
-      const allUsers = await DatabaseService.getAllUsers();
-      const otherUsers = allUsers.filter(user => user.id !== currentUser.id);
-      setUsers(otherUsers);
-      setFilteredUsers(otherUsers);
-      if (otherUsers.length > 0) {
-        setSelectedUser(otherUsers[0]);
-      }
-    } catch (error) {
-      console.error('Error loading users:', error);
-    }
-  };
-
-  const loadChatHistory = async () => {
-    if (!selectedUser) return;
-    
-    try {
-      const chatHistory = await DatabaseService.getChatHistory(
-        currentUser.id,
-        selectedUser.id
-      );
-      setMessages(chatHistory);
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-    }
-  };
-
-  const filterUsers = () => {
-    if (!searchQuery.trim()) {
-      setFilteredUsers(users);
-      return;
-    }
-
-    const filtered = users.filter(user =>
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredUsers(filtered);
-  };
-
-  const sendMessage = async () => {
-    if (!message.trim() || !selectedUser) return;
-
-    try {
-      const newMessage = await DatabaseService.saveMessage(
-        currentUser.id,
-        selectedUser.id,
-        message.trim()
-      );
-      
-      setMessages(prev => [...prev, newMessage]);
-      setMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
-  };
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-  };
+  const [menuScreen, setMenuScreen] = useState<MenuScreen>(null);
 
   const handleTabPress = (tab: ActiveTab) => {
     setActiveTab(tab);
+    setMenuScreen(null);
+    if (tab === 'chat') {
+      setChatView('friends-list');
+      setSelectedFriend(null);
+    }
   };
 
   const handleMenuPress = () => {
     console.log('Menu pressed');
   };
 
-  const handleBackToChat = () => {
-    setActiveTab('chat');
+  const handleNavigateToScreen = (screen: string) => {
+    setMenuScreen(screen as MenuScreen);
   };
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
-    const isOwnMessage = item.senderId === currentUser.id;
-    
+  const handleFriendSelect = (friend: User) => {
+    setSelectedFriend(friend);
+    setChatView('individual-chat');
+  };
+
+  const handleBackToFriendsList = () => {
+    setChatView('friends-list');
+    setSelectedFriend(null);
+  };
+
+  const handleBackToChat = () => {
+    setActiveTab('chat');
+    setMenuScreen(null);
+  };
+
+  const handleBackFromMenu = () => {
+    setMenuScreen(null);
+  };
+
+  const renderChatScreen = () => {
+    if (chatView === 'individual-chat' && selectedFriend) {
+      return (
+        <ChatScreen
+          currentUser={currentUser}
+          selectedFriend={selectedFriend}
+          onBack={handleBackToFriendsList}
+        />
+      );
+    }
+
     return (
-      <View style={[
-        styles.messageContainer,
-        isOwnMessage ? styles.ownMessage : styles.otherMessage
-      ]}>
-        <Text style={[
-          styles.messageText,
-          isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-        ]}>
-          {item.message}
-        </Text>
-        <Text style={[
-          styles.timestamp,
-          isOwnMessage ? styles.ownTimestamp : styles.otherTimestamp
-        ]}>
-          {new Date(item.timestamp).toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })}
-        </Text>
+      <View style={styles.friendsScreenContainer}>
+        <FriendsListScreen
+          currentUser={currentUser}
+          onFriendSelect={handleFriendSelect}
+        />
       </View>
     );
   };
 
-  const renderUserItem = ({ item }: { item: User }) => (
-    <TouchableOpacity
-      style={[
-        styles.userItem,
-        selectedUser?.id === item.id && styles.selectedUserItem
-      ]}
-      onPress={() => setSelectedUser(item)}
-    >
-      <View style={styles.userAvatar}>
-        <Text style={styles.userInitial}>
-          {item.email.charAt(0).toUpperCase()}
-        </Text>
-      </View>
-      <Text style={[
-        styles.userEmail,
-        selectedUser?.id === item.id && styles.selectedUserEmail
-      ]}>
-        {item.email}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const renderChatScreen = () => (
-    <>
-      {/* Search Bar */}
-      <SearchBar onSearch={handleSearch} placeholder="Search users..." />
-
-      {/* Users List */}
-      <View style={styles.usersList}>
-        <Text style={styles.usersTitle}>Available Users</Text>
-        <FlatList
-          data={filteredUsers}
-          renderItem={renderUserItem}
-          keyExtractor={(item) => item.id.toString()}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.usersFlatList}
-          contentContainerStyle={styles.usersContent}
-        />
-      </View>
-
-      {/* Chat Container */}
-      <View style={styles.chatContainer}>
-        {messages.length === 0 ? (
-          <View style={styles.emptyChat}>
-            <Text style={styles.emptyChatIcon}>💬</Text>
-            <Text style={styles.emptyChatTitle}>No messages yet</Text>
-            <Text style={styles.emptyChatSubtitle}>
-              Start a conversation by sending a message
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={messages}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id.toString()}
-            style={styles.messagesList}
-            inverted
-            contentContainerStyle={styles.messagesContent}
-          />
-        )}
-      </View>
-
-      {/* Input Container */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.inputContainer}
-      >
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            placeholderTextColor="#999"
-            value={message}
-            onChangeText={setMessage}
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !message.trim() && styles.sendButtonDisabled
-            ]}
-            onPress={sendMessage}
-            disabled={!message.trim()}
-          >
-            <Text style={styles.sendButtonText}>📤</Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </>
-  );
+  const renderMenuScreen = () => {
+    switch (menuScreen) {
+      case 'profile':
+        return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'groups':
+        return <GroupsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'settings':
+        return <SettingsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'about':
+        return <AboutScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'requests':
+        return <RequestsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      default:
+        return null;
+    }
+  };
 
   const renderCurrentScreen = () => {
+    // If a menu screen is active, show it
+    if (menuScreen) {
+      return renderMenuScreen();
+    }
+
+    // Otherwise show the regular tab screens
     switch (activeTab) {
       case 'chat':
         return renderChatScreen();
@@ -263,38 +143,150 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     }
   };
 
+  const getHeaderTitle = () => {
+    if (menuScreen) {
+      switch (menuScreen) {
+        case 'profile':
+          return 'Profile';
+        case 'groups':
+          return 'Groups';
+        case 'settings':
+          return 'Settings';
+        case 'about':
+          return 'About';
+        case 'requests':
+          return 'Requests';
+        default:
+          return 'Menu';
+      }
+    }
+
+    if (activeTab === 'chat') {
+      if (chatView === 'individual-chat' && selectedFriend) {
+        return selectedFriend.email;
+      }
+      return 'Chats';
+    } else if (activeTab === 'find') {
+      return 'Find Friends';
+    } else if (activeTab === 'call') {
+      return 'Calls';
+    }
+    return 'Chats';
+  };
+
+  const getHeaderSubtitle = () => {
+    if (menuScreen) {
+      switch (menuScreen) {
+        case 'profile':
+          return 'Manage your profile';
+        case 'groups':
+          return 'Create and manage groups';
+        case 'settings':
+          return 'App preferences and settings';
+        case 'about':
+          return 'App information and support';
+        case 'requests':
+          return 'Friend requests and invitations';
+        default:
+          return '';
+      }
+    }
+
+    if (activeTab === 'chat') {
+      if (chatView === 'individual-chat' && selectedFriend) {
+        return 'Online';
+      }
+      return 'Your conversations';
+    } else if (activeTab === 'find') {
+      return 'Discover new people to chat with';
+    } else if (activeTab === 'call') {
+      return 'Your call history';
+    }
+    return '';
+  };
+
+  const shouldShowBackButton = () => {
+    return menuScreen !== null || 
+           (activeTab === 'find' || activeTab === 'call') || 
+           (activeTab === 'chat' && chatView === 'individual-chat');
+  };
+
+  const handleBackPress = () => {
+    if (menuScreen) {
+      setMenuScreen(null);
+    } else if (activeTab === 'find' || activeTab === 'call') {
+      setActiveTab('chat');
+    } else if (activeTab === 'chat' && chatView === 'individual-chat') {
+      setChatView('friends-list');
+      setSelectedFriend(null);
+    }
+  };
+
+  const isIndividualChat = () => {
+    return activeTab === 'chat' && chatView === 'individual-chat';
+  };
+
+  const shouldShowMenu = () => {
+    return !menuScreen && !isIndividualChat();
+  };
+
+  const shouldShowBottomNav = () => {
+    return !menuScreen;
+  };
+
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header - Always visible */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
         <View style={styles.headerContent}>
-          <View style={styles.headerLogo}>
-            <Text style={styles.headerLogoText}>💬</Text>
-          </View>
+          {shouldShowBackButton() ? (
+            <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+              <Text style={styles.backButtonText}>‹</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerLogo}>
+              <Text style={styles.headerLogoText}>💬</Text>
+            </View>
+          )}
+          
           <View style={styles.headerText}>
-            <Text style={styles.headerTitle}>Chat</Text>
-            <Text style={styles.headerSubtitle}>
-              {activeTab === 'chat' && selectedUser 
-                ? `Chatting with ${selectedUser.email}` 
-                : activeTab === 'find' 
-                ? 'Find new friends'
-                : 'Call history'
-              }
-            </Text>
+            <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+            <Text style={styles.headerSubtitle}>{getHeaderSubtitle()}</Text>
           </View>
-          <HeaderMenu onMenuPress={handleMenuPress} />
+          
+          {isIndividualChat() ? (
+            <View style={styles.chatActions}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionButtonText}>📞</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionButtonText}>📹</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionButtonText}>⋮</Text>
+              </TouchableOpacity>
+            </View>
+          ) : shouldShowMenu() ? (
+            <HeaderMenu 
+              onMenuPress={handleMenuPress} 
+              onNavigateToScreen={handleNavigateToScreen}
+            />
+          ) : null}
         </View>
       </View>
 
+      {/* Content Area */}
       <View style={styles.content}>
         {renderCurrentScreen()}
       </View>
 
-      {/* Bottom Navigation */}
-      <BottomNavigation 
-        activeTab={activeTab} 
-        onTabPress={handleTabPress} 
-      />
+      {/* Bottom Navigation - Only show when not in menu screens */}
+      {shouldShowBottomNav() && (
+        <BottomNavigation 
+          activeTab={activeTab} 
+          onTabPress={handleTabPress} 
+        />
+      )}
 
       {/* Bottom Safe Area */}
       <View style={{ height: insets.bottom }} />
@@ -338,6 +330,20 @@ const styles = StyleSheet.create({
   headerLogoText: {
     fontSize: 24,
   },
+  backButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  backButtonText: {
+    fontSize: 28,
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
   headerText: {
     flex: 1,
   },
@@ -352,203 +358,29 @@ const styles = StyleSheet.create({
     color: '#E8F5E8',
     opacity: 0.9,
   },
+  chatActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  actionButtonText: {
+    fontSize: 18,
+    color: '#ffffff',
+  },
   content: {
     flex: 1,
   },
-  usersList: {
-    padding: 20,
-    paddingBottom: 15,
-  },
-  usersTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#075E54',
-    marginBottom: 15,
-  },
-  usersFlatList: {
-    maxHeight: 80,
-  },
-  usersContent: {
-    paddingRight: 20,
-  },
-  userItem: {
-    alignItems: 'center',
-    marginRight: 20,
-    minWidth: 70,
-  },
-  userAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#E8E8E8',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-    borderWidth: 2,
-    borderColor: '#E8E8E8',
-  },
-  userInitial: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#666',
-  },
-  selectedUserItem: {
-    transform: [{ scale: 1.1 }],
-  },
-  userEmail: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  selectedUserEmail: {
-    color: '#075E54',
-    fontWeight: '600',
-  },
-  chatContainer: {
+  friendsScreenContainer: {
     flex: 1,
-    paddingHorizontal: 20,
-  },
-  emptyChat: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyChatIcon: {
-    fontSize: 60,
-    marginBottom: 20,
-  },
-  emptyChatTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-  },
-  emptyChatSubtitle: {
-    fontSize: 16,
-    color: '#999',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  messagesList: {
-    flex: 1,
-  },
-  messagesContent: {
-    paddingVertical: 20,
-  },
-  messageContainer: {
-    marginVertical: 6,
-    maxWidth: '80%',
-  },
-  ownMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#DCF8C6',
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  otherMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 20,
-  },
-  ownMessageText: {
-    color: '#1A1A1A',
-  },
-  otherMessageText: {
-    color: '#1A1A1A',
-  },
-  timestamp: {
-    fontSize: 11,
-    marginTop: 6,
-    opacity: 0.6,
-  },
-  ownTimestamp: {
-    color: '#1A1A1A',
-    textAlign: 'right',
-  },
-  otherTimestamp: {
-    color: '#666',
-  },
-  inputContainer: {
-    backgroundColor: '#ffffff',
-    padding: 20,
-    paddingBottom: 20,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#F8F9FA',
-    color: '#1A1A1A',
-    marginRight: 12,
-    maxHeight: 100,
-    minHeight: 44,
-  },
-  sendButton: {
-    backgroundColor: '#25D366',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#25D366',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#E8E8E8',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  sendButtonText: {
-    fontSize: 20,
+    backgroundColor: '#F0F0F0',
   },
 });
 

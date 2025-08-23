@@ -5,9 +5,7 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  StatusBar,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Call {
   id: string;
@@ -24,7 +22,6 @@ interface CallsScreenProps {
 }
 
 const CallsScreen: React.FC<CallsScreenProps> = ({ currentUser, onBack }) => {
-  const insets = useSafeAreaInsets();
   const [calls, setCalls] = useState<Call[]>([
     {
       id: '1',
@@ -119,21 +116,6 @@ const CallsScreen: React.FC<CallsScreenProps> = ({ currentUser, onBack }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#075E54" />
-      
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>‹</Text>
-          </TouchableOpacity>
-          <View style={styles.headerText}>
-            <Text style={styles.headerTitle}>Calls</Text>
-            <Text style={styles.headerSubtitle}>Your call history</Text>
-          </View>
-        </View>
-      </View>
-
       {/* Calls List */}
       <View style={styles.content}>
         {calls.length === 0 ? (
@@ -163,53 +145,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F0F0F0',
-  },
-  header: {
-    backgroundColor: '#075E54',
-    paddingBottom: 20,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  backButtonText: {
-    fontSize: 24,
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  headerText: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#E8F5E8',
-    opacity: 0.9,
   },
   content: {
     flex: 1,

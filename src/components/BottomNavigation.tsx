@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: -2,
+      height: -4,
     },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -88,7 +88,8 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 15,
+    paddingBottom: 15,
   },
   tab: {
     flex: 1,
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     position: 'relative',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   icon: {
     fontSize: 24,
@@ -113,7 +114,7 @@ const styles = StyleSheet.create({
   },
   activeIndicator: {
     position: 'absolute',
-    bottom: -2,
+    bottom: -4,
     left: '50%',
     marginLeft: -3,
     width: 6,
