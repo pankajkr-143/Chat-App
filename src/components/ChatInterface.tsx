@@ -6,10 +6,10 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DatabaseService, { ChatMessage, User } from '../database/DatabaseService';
 
 interface ChatInterfaceProps {
@@ -17,6 +17,7 @@ interface ChatInterfaceProps {
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
+  const insets = useSafeAreaInsets();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -126,9 +127,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
         <View style={styles.headerContent}>
           <View style={styles.headerLogo}>
             <Text style={styles.headerLogoText}>💬</Text>
@@ -207,7 +208,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
           </View>
         </KeyboardAvoidingView>
       </View>
-    </SafeAreaView>
+
+      {/* Bottom Safe Area */}
+      <View style={{ height: insets.bottom }} />
+    </View>
   );
 };
 
@@ -218,7 +222,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#075E54',
-    paddingTop: 10,
     paddingBottom: 20,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
@@ -406,6 +409,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     backgroundColor: '#ffffff',
     padding: 20,
+    paddingBottom: 20,
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     shadowColor: '#000',

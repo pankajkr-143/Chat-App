@@ -6,7 +6,9 @@ import {
   Dimensions,
   Animated,
   StatusBar,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -15,6 +17,7 @@ interface SplashScreenProps {
 }
 
 const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
+  const insets = useSafeAreaInsets();
   const fadeAnim = new Animated.Value(0);
   const scaleAnim = new Animated.Value(0.3);
   const slideAnim = new Animated.Value(50);
@@ -49,7 +52,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   }, [fadeAnim, scaleAnim, slideAnim, onFinish]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="light-content" backgroundColor="#075E54" />
       
       {/* Background Pattern */}
@@ -91,6 +94,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           styles.footer,
           {
             opacity: fadeAnim,
+            bottom: Math.max(insets.bottom + 20, 80),
           },
         ]}
       >
@@ -194,7 +198,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: 'absolute',
-    bottom: 80,
     alignItems: 'center',
   },
   loadingContainer: {

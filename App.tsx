@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Alert, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SplashScreen from './src/screens/SplashScreen';
 import TermsScreen from './src/screens/TermsScreen';
 import AuthScreen from './src/screens/AuthScreen';
@@ -89,36 +90,16 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      {renderCurrentScreen()}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        {renderCurrentScreen()}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  mainContainer: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  welcomeContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a2e',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  subText: {
-    fontSize: 16,
-    color: '#6c757d',
-    textAlign: 'center',
   },
 });

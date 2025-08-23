@@ -6,12 +6,12 @@ import {
   TextInput,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,6 +21,7 @@ interface AuthScreenProps {
 }
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
+  const insets = useSafeAreaInsets();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -73,7 +74,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#075E54" />
       
       <KeyboardAvoidingView
@@ -81,7 +82,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
         style={styles.keyboardView}
       >
         {/* Header Section */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 20, 40) }]}>
           <View style={styles.logoContainer}>
             <Text style={styles.logo}>💬</Text>
           </View>
@@ -200,13 +201,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
         </View>
 
         {/* Footer */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 20, 20) }]}>
           <Text style={styles.footerText}>
             By continuing, you agree to our Terms of Service and Privacy Policy
           </Text>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -220,7 +221,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#075E54',
-    paddingTop: 40,
     paddingBottom: 50,
     alignItems: 'center',
     borderBottomLeftRadius: 30,
@@ -386,6 +386,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 20,
+    paddingTop: 20,
     alignItems: 'center',
   },
   footerText: {

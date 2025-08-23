@@ -6,9 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
   Dimensions,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
@@ -17,6 +18,7 @@ interface TermsScreenProps {
 }
 
 const TermsScreen: React.FC<TermsScreenProps> = ({ onAgree }) => {
+  const insets = useSafeAreaInsets();
   const [hasRead, setHasRead] = useState(false);
 
   const handleScroll = (event: any) => {
@@ -31,11 +33,11 @@ const TermsScreen: React.FC<TermsScreenProps> = ({ onAgree }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#075E54" />
       
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 20, 40) }]}>
         <View style={styles.headerContent}>
           <View style={styles.logoContainer}>
             <Text style={styles.logo}>💬</Text>
@@ -109,7 +111,7 @@ const TermsScreen: React.FC<TermsScreenProps> = ({ onAgree }) => {
       </ScrollView>
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 20, 20) }]}>
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View 
@@ -137,7 +139,7 @@ const TermsScreen: React.FC<TermsScreenProps> = ({ onAgree }) => {
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -148,7 +150,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#075E54',
-    paddingTop: 20,
     paddingBottom: 30,
     borderBottomLeftRadius: 25,
     borderBottomRightRadius: 25,
@@ -238,6 +239,7 @@ const styles = StyleSheet.create({
   footer: {
     backgroundColor: '#ffffff',
     padding: 20,
+    paddingTop: 20,
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     shadowColor: '#000',
