@@ -8,6 +8,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import DatabaseService, { ChatMessage, User } from '../database/DatabaseService';
 
@@ -25,15 +26,42 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [friend, setFriend] = useState<User>(selectedFriend);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     loadChatHistory();
+    loadFriendInfo();
+    
+    // Set up interval to refresh friend's online status
+    const interval = setInterval(loadFriendInfo, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
   }, [selectedFriend]);
+
+  const loadFriendInfo = async () => {
+    try {
+      // Get updated friend info to check online status
+      const updatedFriend = await DatabaseService.getUserByUsername(selectedFriend.username);
+      if (updatedFriend) {
+        setFriend(updatedFriend);
+      }
+    } catch (error) {
+      console.error('Error loading friend info:', error);
+    }
+  };
 
   const loadChatHistory = async () => {
     try {
       setIsLoading(true);
+      
+      // Check if users are friends
+      const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
+      if (!areFriends) {
+        console.log('Users are not friends, cannot load chat');
+        setIsLoading(false);
+        return;
+      }
+
       const chatHistory = await DatabaseService.getChatHistory(
         currentUser.id,
         selectedFriend.id
@@ -59,6 +87,13 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     if (!message.trim()) return;
 
     try {
+      // Check if users are still friends before sending
+      const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
+      if (!areFriends) {
+        Alert.alert('Error', 'You can only send messages to your friends.');
+        return;
+      }
+
       const newMessage = await DatabaseService.saveMessage(
         currentUser.id,
         selectedFriend.id,
@@ -111,6 +146,21 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     );
   };
 
+  const formatLastSeen = (lastSeen: string) => {
+    const date = new Date(lastSeen);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 5) return 'last seen just now';
+    if (diffMins < 60) return `last seen ${diffMins} minutes ago`;
+    if (diffHours < 24) return `last seen ${diffHours} hours ago`;
+    if (diffDays < 7) return `last seen ${diffDays} days ago`;
+    return `last seen ${date.toLocaleDateString()}`;
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -125,10 +175,27 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       <View style={styles.messagesContainer}>
         {messages.length === 0 ? (
           <View style={styles.emptyChat}>
-            <Text style={styles.emptyChatIcon}>💬</Text>
-            <Text style={styles.emptyChatTitle}>No messages yet</Text>
-            <Text style={styles.emptyChatSubtitle}>
-              Start a conversation with {selectedFriend.email}
+            <View style={styles.emptyChatAvatar}>
+              {friend.profilePicture ? (
+                <Text style={styles.emptyChatAvatarEmoji}>{friend.profilePicture}</Text>
+              ) : (
+                <Text style={styles.emptyChatAvatarText}>
+                  {friend.username.charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.emptyChatTitle}>{friend.username}</Text>
+            <View style={styles.statusContainer}>
+              <View style={[
+                styles.statusDot,
+                friend.isOnline ? styles.onlineDot : styles.offlineDot
+              ]} />
+              <Text style={styles.emptyChatSubtitle}>
+                {friend.isOnline ? 'Online' : formatLastSeen(friend.lastSeen)}
+              </Text>
+            </View>
+            <Text style={styles.emptyChatMessage}>
+              Start a conversation with your friend!
             </Text>
           </View>
         ) : (
@@ -153,7 +220,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.input}
-            placeholder="Type a message..."
+            placeholder={`Message ${friend.username}...`}
             placeholderTextColor="#999"
             value={message}
             onChangeText={setMessage}
@@ -264,17 +331,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
   },
-  emptyChatIcon: {
-    fontSize: 60,
+  emptyChatAvatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#E8F5E8',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 20,
+    borderWidth: 4,
+    borderColor: '#25D366',
+  },
+  emptyChatAvatarEmoji: {
+    fontSize: 60,
+  },
+  emptyChatAvatarText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#075E54',
   },
   emptyChatTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#666',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#075E54',
     marginBottom: 8,
   },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  onlineDot: {
+    backgroundColor: '#25D366',
+  },
+  offlineDot: {
+    backgroundColor: '#666',
+  },
   emptyChatSubtitle: {
+    fontSize: 16,
+    color: '#666',
+  },
+  emptyChatMessage: {
     fontSize: 16,
     color: '#999',
     textAlign: 'center',

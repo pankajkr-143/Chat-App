@@ -3,32 +3,30 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DatabaseService, { ChatMessage, User } from '../database/DatabaseService';
+
 import SearchBar from './SearchBar';
-import HeaderMenu from './HeaderMenu';
 import BottomNavigation from './BottomNavigation';
+import HeaderMenu from './HeaderMenu';
 import FriendsListScreen from '../screens/FriendsListScreen';
+import ChatScreen from '../screens/ChatScreen';
 import FindFriendsScreen from '../screens/FindFriendsScreen';
 import CallsScreen from '../screens/CallsScreen';
-import ChatScreen from '../screens/ChatScreen';
+import StatusScreen from '../screens/StatusScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AboutScreen from '../screens/AboutScreen';
 import RequestsScreen from '../screens/RequestsScreen';
+import DatabaseService, { User } from '../database/DatabaseService';
 
 interface ChatInterfaceProps {
   currentUser: User;
 }
 
-type ActiveTab = 'chat' | 'find' | 'call';
+type ActiveTab = 'chat' | 'find' | 'status' | 'call';
 type ChatView = 'friends-list' | 'individual-chat';
 type MenuScreen = 'profile' | 'groups' | 'settings' | 'about' | 'requests' | null;
 
@@ -49,12 +47,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     }
   };
 
-  const handleMenuPress = () => {
-    console.log('Menu pressed');
-  };
-
   const handleNavigateToScreen = (screen: string) => {
     setMenuScreen(screen as MenuScreen);
+  };
+
+  const handleBackFromMenu = () => {
+    setMenuScreen(null);
   };
 
   const handleFriendSelect = (friend: User) => {
@@ -62,159 +60,136 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     setChatView('individual-chat');
   };
 
-  const handleBackToFriendsList = () => {
+  const handleBackToChat = () => {
     setChatView('friends-list');
     setSelectedFriend(null);
   };
 
-  const handleBackToChat = () => {
-    setActiveTab('chat');
-    setMenuScreen(null);
-  };
-
-  const handleBackFromMenu = () => {
-    setMenuScreen(null);
-  };
-
-  const renderChatScreen = () => {
-    if (chatView === 'individual-chat' && selectedFriend) {
-      return (
-        <ChatScreen
-          currentUser={currentUser}
-          selectedFriend={selectedFriend}
-          onBack={handleBackToFriendsList}
-        />
-      );
-    }
-
-    return (
-      <View style={styles.friendsScreenContainer}>
-        <FriendsListScreen
-          currentUser={currentUser}
-          onFriendSelect={handleFriendSelect}
-        />
-      </View>
-    );
+  const handleMenuPress = () => {
+    // Menu is handled by individual menu items
   };
 
   const renderMenuScreen = () => {
     switch (menuScreen) {
-      case 'profile':
-        return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
-      case 'groups':
-        return <GroupsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
-      case 'settings':
-        return <SettingsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
-      case 'about':
-        return <AboutScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
-      case 'requests':
-        return <RequestsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
-      default:
-        return null;
+      case 'profile': return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'groups': return <GroupsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'settings': return <SettingsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'about': return <AboutScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'requests': return <RequestsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      default: return null;
     }
   };
 
   const renderCurrentScreen = () => {
-    // If a menu screen is active, show it
     if (menuScreen) {
       return renderMenuScreen();
     }
 
-    // Otherwise show the regular tab screens
     switch (activeTab) {
       case 'chat':
-        return renderChatScreen();
+        if (chatView === 'individual-chat' && selectedFriend) {
+          return (
+            <ChatScreen
+              currentUser={currentUser}
+              selectedFriend={selectedFriend}
+              onBack={handleBackToChat}
+            />
+          );
+        }
+        return (
+          <View style={styles.friendsScreenContainer}>
+            <FriendsListScreen
+              currentUser={currentUser}
+              onFriendSelect={handleFriendSelect}
+            />
+          </View>
+        );
       case 'find':
         return (
-          <FindFriendsScreen 
-            currentUser={currentUser} 
-            onBack={handleBackToChat} 
+          <FindFriendsScreen
+            currentUser={currentUser}
+            onBack={() => setActiveTab('chat')}
+          />
+        );
+      case 'status':
+        return (
+          <StatusScreen
+            currentUser={currentUser}
+            onBack={() => setActiveTab('chat')}
           />
         );
       case 'call':
         return (
-          <CallsScreen 
-            currentUser={currentUser} 
-            onBack={handleBackToChat} 
+          <CallsScreen
+            currentUser={currentUser}
+            onBack={() => setActiveTab('chat')}
           />
         );
       default:
-        return renderChatScreen();
+        return null;
     }
   };
 
   const getHeaderTitle = () => {
     if (menuScreen) {
       switch (menuScreen) {
-        case 'profile':
-          return 'Profile';
-        case 'groups':
-          return 'Groups';
-        case 'settings':
-          return 'Settings';
-        case 'about':
-          return 'About';
-        case 'requests':
-          return 'Requests';
-        default:
-          return 'Menu';
+        case 'profile': return 'Profile';
+        case 'groups': return 'Groups';
+        case 'settings': return 'Settings';
+        case 'about': return 'About';
+        case 'requests': return 'Requests';
+        default: return 'Menu';
       }
     }
 
-    if (activeTab === 'chat') {
-      if (chatView === 'individual-chat' && selectedFriend) {
-        return selectedFriend.email;
-      }
-      return 'Chats';
-    } else if (activeTab === 'find') {
-      return 'Find Friends';
-    } else if (activeTab === 'call') {
-      return 'Calls';
+    switch (activeTab) {
+      case 'chat':
+        if (chatView === 'individual-chat' && selectedFriend) {
+          return selectedFriend.username;
+        }
+        return 'Chats';
+      case 'find': return 'Find Friends';
+      case 'status': return 'Status';
+      case 'call': return 'Calls';
+      default: return 'ChatApp';
     }
-    return 'Chats';
   };
 
   const getHeaderSubtitle = () => {
     if (menuScreen) {
       switch (menuScreen) {
-        case 'profile':
-          return 'Manage your profile';
-        case 'groups':
-          return 'Create and manage groups';
-        case 'settings':
-          return 'App preferences and settings';
-        case 'about':
-          return 'App information and support';
-        case 'requests':
-          return 'Friend requests and invitations';
-        default:
-          return '';
+        case 'profile': return 'Manage your profile';
+        case 'groups': return 'Create and manage groups';
+        case 'settings': return 'App preferences and settings';
+        case 'about': return 'App information and support';
+        case 'requests': return 'Friend requests and invitations';
+        default: return '';
       }
     }
 
-    if (activeTab === 'chat') {
-      if (chatView === 'individual-chat' && selectedFriend) {
-        return 'Online';
-      }
-      return 'Your conversations';
-    } else if (activeTab === 'find') {
-      return 'Discover new people to chat with';
-    } else if (activeTab === 'call') {
-      return 'Your call history';
+    switch (activeTab) {
+      case 'chat':
+        if (chatView === 'individual-chat' && selectedFriend) {
+          return selectedFriend.isOnline ? 'Online' : 'Offline';
+        }
+        return 'Your conversations';
+      case 'find': return 'Discover new friends';
+      case 'status': return 'Recent updates';
+      case 'call': return 'Call history';
+      default: return '';
     }
-    return '';
   };
 
   const shouldShowBackButton = () => {
-    return menuScreen !== null || 
-           (activeTab === 'find' || activeTab === 'call') || 
+    return menuScreen !== null ||
+           (activeTab === 'find' || activeTab === 'status' || activeTab === 'call') ||
            (activeTab === 'chat' && chatView === 'individual-chat');
   };
 
   const handleBackPress = () => {
     if (menuScreen) {
       setMenuScreen(null);
-    } else if (activeTab === 'find' || activeTab === 'call') {
+    } else if (activeTab === 'find' || activeTab === 'status' || activeTab === 'call') {
       setActiveTab('chat');
     } else if (activeTab === 'chat' && chatView === 'individual-chat') {
       setChatView('friends-list');
@@ -236,7 +211,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
 
   return (
     <View style={styles.container}>
-      {/* Header - Always visible */}
+      {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
         <View style={styles.headerContent}>
           {shouldShowBackButton() ? (
@@ -248,12 +223,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
               <Text style={styles.headerLogoText}>💬</Text>
             </View>
           )}
-          
+
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
             <Text style={styles.headerSubtitle}>{getHeaderSubtitle()}</Text>
           </View>
-          
+
           {isIndividualChat() ? (
             <View style={styles.chatActions}>
               <TouchableOpacity style={styles.actionButton}>
@@ -267,8 +242,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
               </TouchableOpacity>
             </View>
           ) : shouldShowMenu() ? (
-            <HeaderMenu 
-              onMenuPress={handleMenuPress} 
+            <HeaderMenu
+              onMenuPress={handleMenuPress}
               onNavigateToScreen={handleNavigateToScreen}
             />
           ) : null}
@@ -280,11 +255,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
         {renderCurrentScreen()}
       </View>
 
-      {/* Bottom Navigation - Only show when not in menu screens */}
+      {/* Bottom Navigation */}
       {shouldShowBottomNav() && (
-        <BottomNavigation 
-          activeTab={activeTab} 
-          onTabPress={handleTabPress} 
+        <BottomNavigation
+          activeTab={activeTab}
+          onTabPress={handleTabPress}
         />
       )}
 
@@ -301,57 +276,55 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#075E54',
-    paddingBottom: 20,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
+    paddingBottom: 15,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 2,
     },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowRadius: 4,
+    elevation: 6,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  headerLogo: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#128C7E',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  headerLogoText: {
-    fontSize: 24,
-  },
   backButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 12,
   },
   backButtonText: {
-    fontSize: 28,
+    fontSize: 24,
     color: '#ffffff',
     fontWeight: 'bold',
+  },
+  headerLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#128C7E',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  headerLogoText: {
+    fontSize: 20,
   },
   headerText: {
     flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#ffffff',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   headerSubtitle: {
     fontSize: 14,
@@ -363,16 +336,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   actionButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#ffffff',
   },
   content: {

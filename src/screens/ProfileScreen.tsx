@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
 import { User } from '../database/DatabaseService';
 
 interface ProfileScreenProps {
@@ -15,22 +8,40 @@ interface ProfileScreenProps {
 }
 
 const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack }) => {
-  const [isOnline, setIsOnline] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedUsername, setEditedUsername] = useState(currentUser.username);
+  const [editedProfilePicture, setEditedProfilePicture] = useState(currentUser.profilePicture || '😀');
 
   const handleEditProfile = () => {
-    Alert.alert('Edit Profile', 'Profile editing feature coming soon!');
+    setIsEditing(true);
   };
 
-  const handleChangeAvatar = () => {
-    Alert.alert('Change Avatar', 'Avatar change feature coming soon!');
+  const handleSaveProfile = () => {
+    if (!editedUsername.trim()) {
+      Alert.alert('Error', 'Username cannot be empty');
+      return;
+    }
+
+    if (editedUsername.length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters long');
+      return;
+    }
+
+    // In a real app, you would save this to the database
+    Alert.alert('Success', 'Profile updated successfully!');
+    setIsEditing(false);
   };
 
-  const handlePrivacySettings = () => {
-    Alert.alert('Privacy Settings', 'Privacy settings feature coming soon!');
+  const handleCancelEdit = () => {
+    setEditedUsername(currentUser.username);
+    setEditedProfilePicture(currentUser.profilePicture || '😀');
+    setIsEditing(false);
   };
 
-  const handleAccountSettings = () => {
-    Alert.alert('Account Settings', 'Account settings feature coming soon!');
+  const handleChangeProfilePicture = () => {
+    const avatars = ['😀', '😎', '🤔', '😍', '🤗', '🙂', '😊', '🤩', '😄', '🥳', '🤓', '😇'];
+    const randomAvatar = avatars[Math.floor(Math.random() * avatars.length)];
+    setEditedProfilePicture(randomAvatar);
   };
 
   const handleLogout = () => {
@@ -39,132 +50,85 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack }) =>
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: () => console.log('Logout') }
+        { text: 'Logout', style: 'destructive', onPress: () => {
+          // In a real app, you would handle logout here
+          Alert.alert('Logged Out', 'You have been logged out successfully');
+        }}
       ]
     );
   };
 
+  const handleMenuAction = (action: string) => {
+    Alert.alert('Action', `${action} feature will be implemented soon!`);
+  };
+
   const renderProfileSection = () => (
     <View style={styles.profileSection}>
-      <View style={styles.avatarContainer}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {currentUser.email.charAt(0).toUpperCase()}
+      <View style={styles.profileHeader}>
+        <View style={styles.profileAvatar}>
+          <Text style={styles.profileAvatarEmoji}>
+            {isEditing ? editedProfilePicture : (currentUser.profilePicture || '😀')}
+          </Text>
+          {isEditing && (
+            <TouchableOpacity style={styles.changeAvatarButton} onPress={handleChangeProfilePicture}>
+              <Text style={styles.changeAvatarText}>📷</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        <View style={styles.profileInfo}>
+          {isEditing ? (
+            <TextInput
+              style={styles.usernameInput}
+              value={editedUsername}
+              onChangeText={setEditedUsername}
+              placeholder="Enter username"
+              placeholderTextColor="#999"
+              maxLength={20}
+            />
+          ) : (
+            <Text style={styles.profileName}>{currentUser.username}</Text>
+          )}
+          <Text style={styles.profileEmail}>{currentUser.email}</Text>
+          <Text style={styles.profileStatus}>
+            {currentUser.isOnline ? '🟢 Online' : '⚫ Offline'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.editAvatarButton} onPress={handleChangeAvatar}>
-          <Text style={styles.editAvatarText}>📷</Text>
+      </View>
+
+      <View style={styles.profileActions}>
+        {isEditing ? (
+          <>
+            <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={handleCancelEdit}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
+            <Text style={styles.editButtonText}>Edit Profile</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+
+  const renderMenuSection = (title: string, items: Array<{icon: string, label: string, action: string}>) => (
+    <View style={styles.menuSection}>
+      <Text style={styles.menuSectionTitle}>{title}</Text>
+      {items.map((item, index) => (
+        <TouchableOpacity
+          key={index}
+          style={styles.menuItem}
+          onPress={() => handleMenuAction(item.action)}
+        >
+          <Text style={styles.menuItemIcon}>{item.icon}</Text>
+          <Text style={styles.menuItemLabel}>{item.label}</Text>
+          <Text style={styles.menuItemArrow}>›</Text>
         </TouchableOpacity>
-      </View>
-      
-      <Text style={styles.userName}>{currentUser.email}</Text>
-      <View style={styles.statusContainer}>
-        <View style={[styles.statusIndicator, isOnline && styles.onlineIndicator]} />
-        <Text style={styles.statusText}>
-          {isOnline ? 'Online' : 'Offline'}
-        </Text>
-      </View>
-      
-      <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
-        <Text style={styles.editProfileText}>Edit Profile</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderMenuSection = () => (
-    <View style={styles.menuSection}>
-      <Text style={styles.sectionTitle}>Account</Text>
-      
-      <TouchableOpacity style={styles.menuItem} onPress={handlePrivacySettings}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>🔒</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Privacy & Security</Text>
-          <Text style={styles.menuSubtitle}>Manage your privacy settings</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.menuItem} onPress={handleAccountSettings}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>⚙️</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Account Settings</Text>
-          <Text style={styles.menuSubtitle}>Manage your account</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.menuItem}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>📱</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Notifications</Text>
-          <Text style={styles.menuSubtitle}>Manage notification preferences</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.menuItem}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>💾</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Storage & Data</Text>
-          <Text style={styles.menuSubtitle}>Manage storage and data usage</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderSupportSection = () => (
-    <View style={styles.menuSection}>
-      <Text style={styles.sectionTitle}>Support</Text>
-      
-      <TouchableOpacity style={styles.menuItem}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>❓</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Help Center</Text>
-          <Text style={styles.menuSubtitle}>Get help and support</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.menuItem}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>📧</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Contact Us</Text>
-          <Text style={styles.menuSubtitle}>Reach out to our team</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.menuItem}>
-        <View style={styles.menuIcon}>
-          <Text style={styles.menuIconText}>⭐</Text>
-        </View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuTitle}>Rate App</Text>
-          <Text style={styles.menuSubtitle}>Rate us on app store</Text>
-        </View>
-        <Text style={styles.menuArrow}>›</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderLogoutSection = () => (
-    <View style={styles.menuSection}>
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
+      ))}
     </View>
   );
 
@@ -172,9 +136,25 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack }) =>
     <View style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {renderProfileSection()}
-        {renderMenuSection()}
-        {renderSupportSection()}
-        {renderLogoutSection()}
+
+        {renderMenuSection('Account', [
+          { icon: '🔒', label: 'Privacy', action: 'Privacy Settings' },
+          { icon: '⚙️', label: 'Settings', action: 'App Settings' },
+          { icon: '🔔', label: 'Notifications', action: 'Notification Preferences' },
+          { icon: '💾', label: 'Storage', action: 'Storage Management' },
+        ])}
+
+        {renderMenuSection('Support', [
+          { icon: '❓', label: 'Help', action: 'Help Center' },
+          { icon: '📧', label: 'Contact Us', action: 'Contact Support' },
+          { icon: '⭐', label: 'Rate App', action: 'Rate on Store' },
+        ])}
+
+        <View style={styles.logoutSection}>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -190,10 +170,9 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     backgroundColor: '#ffffff',
-    padding: 20,
     margin: 20,
     borderRadius: 20,
-    alignItems: 'center',
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -203,82 +182,109 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: 16,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#E8F5E8',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#25D366',
-  },
-  avatarText: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: '#075E54',
-  },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#25D366',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#ffffff',
-  },
-  editAvatarText: {
-    fontSize: 16,
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1A1A1A',
-    marginBottom: 8,
-  },
-  statusContainer: {
+  profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
   },
-  statusIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#999',
-    marginRight: 8,
+  profileAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E8F5E8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    borderWidth: 3,
+    borderColor: '#25D366',
+    position: 'relative',
   },
-  onlineIndicator: {
+  profileAvatarEmoji: {
+    fontSize: 40,
+  },
+  changeAvatarButton: {
+    position: 'absolute',
+    bottom: -5,
+    right: -5,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: '#25D366',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
   },
-  statusText: {
+  changeAvatarText: {
+    fontSize: 14,
+    color: '#ffffff',
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  usernameInput: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#25D366',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  profileEmail: {
     fontSize: 16,
     color: '#666',
-    fontWeight: '500',
+    marginBottom: 4,
   },
-  editProfileButton: {
+  profileStatus: {
+    fontSize: 14,
+    color: '#25D366',
+    fontWeight: '600',
+  },
+  profileActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editButton: {
+    flex: 1,
     backgroundColor: '#25D366',
-    paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 20,
-    shadowColor: '#25D366',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    alignItems: 'center',
   },
-  editProfileText: {
+  editButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#25D366',
+    paddingVertical: 12,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 12,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
@@ -288,6 +294,7 @@ const styles = StyleSheet.create({
     margin: 20,
     marginTop: 0,
     borderRadius: 20,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -297,56 +304,41 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  sectionTitle: {
+  menuSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#075E54',
-    padding: 20,
-    paddingBottom: 10,
+    marginBottom: 16,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    paddingTop: 15,
-    paddingBottom: 15,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
-  menuIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F0F9FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+  menuItemIcon: {
+    fontSize: 20,
     marginRight: 16,
+    width: 24,
+    textAlign: 'center',
   },
-  menuIconText: {
-    fontSize: 18,
-  },
-  menuContent: {
+  menuItemLabel: {
     flex: 1,
-  },
-  menuTitle: {
     fontSize: 16,
-    fontWeight: '600',
     color: '#1A1A1A',
-    marginBottom: 2,
   },
-  menuSubtitle: {
-    fontSize: 14,
-    color: '#666',
-  },
-  menuArrow: {
+  menuItemArrow: {
     fontSize: 18,
     color: '#999',
-    fontWeight: 'bold',
+  },
+  logoutSection: {
+    margin: 20,
+    marginTop: 0,
   },
   logoutButton: {
     backgroundColor: '#FF6B6B',
-    margin: 20,
-    padding: 16,
+    paddingVertical: 16,
     borderRadius: 20,
     alignItems: 'center',
     shadowColor: '#FF6B6B',
@@ -358,10 +350,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-  logoutText: {
+  logoutButtonText: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 

@@ -1,136 +1,121 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Dimensions,
-} from 'react-native';
-
-const { width } = Dimensions.get('window');
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 interface BottomNavigationProps {
-  activeTab: 'chat' | 'find' | 'call';
-  onTabPress: (tab: 'chat' | 'find' | 'call') => void;
+  activeTab: 'chat' | 'find' | 'call' | 'status';
+  onTabPress: (tab: 'chat' | 'find' | 'call' | 'status') => void;
 }
 
 const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabPress }) => {
-  const tabs = [
-    {
-      id: 'chat' as const,
-      label: 'Chat',
-      icon: '💬',
-      activeIcon: '💬',
-    },
-    {
-      id: 'find' as const,
-      label: 'Find Friends',
-      icon: '👥',
-      activeIcon: '👥',
-    },
-    {
-      id: 'call' as const,
-      label: 'Calls',
-      icon: '📞',
-      activeIcon: '📞',
-    },
-  ];
-
   return (
-    <View style={styles.container}>
-      <View style={styles.tabContainer}>
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.id}
-            style={[
-              styles.tab,
-              activeTab === tab.id && styles.activeTab,
-            ]}
-            onPress={() => onTabPress(tab.id)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconContainer}>
-              <Text style={[
-                styles.icon,
-                activeTab === tab.id && styles.activeIcon,
-              ]}>
-                {activeTab === tab.id ? tab.activeIcon : tab.icon}
-              </Text>
-              {activeTab === tab.id && <View style={styles.activeIndicator} />}
-            </View>
-            <Text style={[
-              styles.label,
-              activeTab === tab.id && styles.activeLabel,
-            ]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+    <View style={styles.tabContainer}>
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'chat' && styles.activeTab]}
+        onPress={() => onTabPress('chat')}
+      >
+        <View style={[styles.iconContainer, activeTab === 'chat' && styles.activeIconContainer]}>
+          <Text style={[styles.icon, activeTab === 'chat' && styles.activeIcon]}>💬</Text>
+        </View>
+        <Text style={[styles.tabLabel, activeTab === 'chat' && styles.activeTabLabel]}>Chat</Text>
+        {activeTab === 'chat' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'find' && styles.activeTab]}
+        onPress={() => onTabPress('find')}
+      >
+        <View style={[styles.iconContainer, activeTab === 'find' && styles.activeIconContainer]}>
+          <Text style={[styles.icon, activeTab === 'find' && styles.activeIcon]}>👥</Text>
+        </View>
+        <Text style={[styles.tabLabel, activeTab === 'find' && styles.activeTabLabel]}>Find</Text>
+        {activeTab === 'find' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'status' && styles.activeTab]}
+        onPress={() => onTabPress('status')}
+      >
+        <View style={[styles.iconContainer, activeTab === 'status' && styles.activeIconContainer]}>
+          <Text style={[styles.icon, activeTab === 'status' && styles.activeIcon]}>📱</Text>
+        </View>
+        <Text style={[styles.tabLabel, activeTab === 'status' && styles.activeTabLabel]}>Status</Text>
+        {activeTab === 'status' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'call' && styles.activeTab]}
+        onPress={() => onTabPress('call')}
+      >
+        <View style={[styles.iconContainer, activeTab === 'call' && styles.activeIconContainer]}>
+          <Text style={[styles.icon, activeTab === 'call' && styles.activeIcon]}>📞</Text>
+        </View>
+        <Text style={[styles.tabLabel, activeTab === 'call' && styles.activeTabLabel]}>Calls</Text>
+        {activeTab === 'call' && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  tabContainer: {
+    flexDirection: 'row',
     backgroundColor: '#ffffff',
+    paddingVertical: 8,
+    paddingBottom: 12,
     borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
+    borderTopColor: '#E8E8E8',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: -4,
+      height: -2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 8,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    paddingBottom: 15,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 8,
-    borderRadius: 12,
   },
   activeTab: {
-    backgroundColor: '#F0F9FF',
+    position: 'relative',
   },
   iconContainer: {
-    position: 'relative',
-    marginBottom: 6,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  activeIconContainer: {
+    backgroundColor: '#E8F5E8',
   },
   icon: {
-    fontSize: 24,
-    opacity: 0.6,
+    fontSize: 20,
+    opacity: 0.7,
   },
   activeIcon: {
-    fontSize: 24,
     opacity: 1,
+  },
+  tabLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  activeTabLabel: {
+    color: '#25D366',
+    fontWeight: '600',
   },
   activeIndicator: {
     position: 'absolute',
-    bottom: -4,
-    left: '50%',
-    marginLeft: -3,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    bottom: 0,
+    width: 20,
+    height: 3,
     backgroundColor: '#25D366',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#666',
-    textAlign: 'center',
-  },
-  activeLabel: {
-    color: '#25D366',
-    fontWeight: '600',
+    borderRadius: 2,
   },
 });
 
