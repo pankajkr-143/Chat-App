@@ -5,9 +5,10 @@ import { User } from '../database/DatabaseService';
 interface ProfileScreenProps {
   currentUser: User;
   onBack: () => void;
+  onLogout: () => void; // Add logout callback
 }
 
-const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack }) => {
+const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedUsername, setEditedUsername] = useState(currentUser.username);
   const [editedProfilePicture, setEditedProfilePicture] = useState(currentUser.profilePicture || '😀');
@@ -50,10 +51,14 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ currentUser, onBack }) =>
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: () => {
-          // In a real app, you would handle logout here
-          Alert.alert('Logged Out', 'You have been logged out successfully');
-        }}
+        { 
+          text: 'Logout', 
+          style: 'destructive', 
+          onPress: () => {
+            // Call the logout callback to actually log out
+            onLogout();
+          }
+        }
       ]
     );
   };

@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SearchBar from './SearchBar';
 import BottomNavigation from './BottomNavigation';
 import HeaderMenu from './HeaderMenu';
+import NotificationBanner from './NotificationBanner';
 import FriendsListScreen from '../screens/FriendsListScreen';
 import ChatScreen from '../screens/ChatScreen';
 import FindFriendsScreen from '../screens/FindFriendsScreen';
@@ -24,13 +25,14 @@ import DatabaseService, { User } from '../database/DatabaseService';
 
 interface ChatInterfaceProps {
   currentUser: User;
+  onLogout: () => void;
 }
 
 type ActiveTab = 'chat' | 'find' | 'status' | 'call';
 type ChatView = 'friends-list' | 'individual-chat';
 type MenuScreen = 'profile' | 'groups' | 'settings' | 'about' | 'requests' | null;
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) => {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
   const [chatView, setChatView] = useState<ChatView>('friends-list');
@@ -69,9 +71,27 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     // Menu is handled by individual menu items
   };
 
+  const handleLogout = async () => {
+    try {
+      // Update user online status to offline
+      await DatabaseService.updateUserOnlineStatus(currentUser.id, false);
+      
+      // Call the logout callback to return to auth screen
+      onLogout();
+    } catch (error) {
+      console.error('Error during logout:', error);
+      // Still logout even if there's an error
+      onLogout();
+    }
+  };
+
+  const handleNavigateToRequests = () => {
+    setMenuScreen('requests');
+  };
+
   const renderMenuScreen = () => {
     switch (menuScreen) {
-      case 'profile': return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
+      case 'profile': return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} onLogout={handleLogout} />;
       case 'groups': return <GroupsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
       case 'settings': return <SettingsScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
       case 'about': return <AboutScreen currentUser={currentUser} onBack={handleBackFromMenu} />;
@@ -209,8 +229,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser }) => {
     return !menuScreen;
   };
 
+  const getNotificationTopOffset = () => {
+    return Math.max(insets.top, 20);
+  };
+
   return (
     <View style={styles.container}>
+      {/* Notification Banner - Always on top */}
+      <View style={[styles.notificationContainer, { paddingTop: getNotificationTopOffset() }]}>
+        <NotificationBanner
+          currentUser={currentUser}
+          onNavigateToRequests={handleNavigateToRequests}
+        />
+      </View>
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
         <View style={styles.headerContent}>
@@ -273,6 +305,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F0F0F0',
+  },
+  notificationContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
   },
   header: {
     backgroundColor: '#075E54',

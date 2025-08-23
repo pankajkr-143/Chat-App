@@ -16,10 +16,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     initializeApp();
-    
+
     // Handle app state changes for online status
     const subscription = RNAppState.addEventListener('change', handleAppStateChange);
-    
+
     return () => {
       subscription?.remove();
       // Set user offline when app is closed
@@ -107,6 +107,15 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    // Clear current user and return to auth screen
+    setCurrentUser(null);
+    setAppState('auth');
+
+    // Show logout confirmation
+    Alert.alert('Logged Out', 'You have been logged out successfully. Please sign in again to continue.');
+  };
+
   const renderCurrentScreen = () => {
     switch (appState) {
       case 'splash':
@@ -116,7 +125,7 @@ const App: React.FC = () => {
       case 'auth':
         return <AuthScreen onLogin={handleLogin} onSignup={handleSignup} />;
       case 'main':
-        return currentUser ? <ChatInterface currentUser={currentUser} /> : null;
+        return currentUser ? <ChatInterface currentUser={currentUser} onLogout={handleLogout} /> : null;
       default:
         return <SplashScreen onFinish={handleSplashFinish} />;
     }

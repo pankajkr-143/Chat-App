@@ -1,13 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
+  FlatList,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
+import DatabaseService, { User } from '../database/DatabaseService';
 import SearchBar from '../components/SearchBar';
-import DatabaseService, { User, ChatMessage } from '../database/DatabaseService';
 
 interface FriendWithLastMessage extends User {
   lastMessage?: string;
@@ -25,16 +30,21 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
   const [filteredFriends, setFilteredFriends] = useState<FriendWithLastMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     loadFriends();
-    // Set up interval to refresh online status periodically
     const interval = setInterval(loadFriends, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    filterFriends();
+    if (searchQuery.trim()) {
+      filterFriends();
+    } else {
+      setFilteredFriends(friends);
+    }
   }, [searchQuery, friends]);
 
   const loadFriends = async () => {
@@ -58,26 +68,33 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
         });
       }
 
-      // Sort friends: online first, then by last message time
       friendsWithMessages.sort((a, b) => {
         if (a.isOnline && !b.isOnline) return -1;
         if (!a.isOnline && b.isOnline) return 1;
-        
+
         if (a.lastMessageTime && b.lastMessageTime) {
           return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
         }
         if (a.lastMessageTime && !b.lastMessageTime) return -1;
         if (!a.lastMessageTime && b.lastMessageTime) return 1;
-        
+
         return a.username.localeCompare(b.username);
       });
 
       setFriends(friendsWithMessages);
+      setFilteredFriends(friendsWithMessages);
     } catch (error) {
       console.error('Error loading friends:', error);
+      Alert.alert('Error', 'Failed to load friends. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadFriends();
+    setRefreshing(false);
   };
 
   const filterFriends = () => {
@@ -85,7 +102,6 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
       setFilteredFriends(friends);
       return;
     }
-
     const filtered = friends.filter(friend =>
       friend.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       friend.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -93,13 +109,8 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
     setFilteredFriends(filtered);
   };
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-  };
-
   const formatLastMessageTime = (timestamp?: string) => {
     if (!timestamp) return '';
-    
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -114,10 +125,15 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
     return date.toLocaleDateString();
   };
 
+  const handleFriendPress = (friend: FriendWithLastMessage) => {
+    Keyboard.dismiss();
+    onFriendSelect(friend);
+  };
+
   const renderFriendItem = ({ item }: { item: FriendWithLastMessage }) => (
     <TouchableOpacity
       style={styles.friendCard}
-      onPress={() => onFriendSelect(item)}
+      onPress={() => handleFriendPress(item)}
       activeOpacity={0.7}
     >
       <View style={styles.friendInfo}>
@@ -136,7 +152,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
             item.isOnline ? styles.onlineIndicatorActive : styles.offlineIndicator
           ]} />
         </View>
-        
+
         <View style={styles.friendDetails}>
           <View style={styles.friendHeader}>
             <Text style={styles.friendName}>{item.username}</Text>
@@ -146,7 +162,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
               </Text>
             )}
           </View>
-          
+
           <View style={styles.lastMessageContainer}>
             <Text style={styles.lastMessage} numberOfLines={1}>
               {item.lastMessage || 'No messages yet'}
@@ -164,57 +180,70 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
     </TouchableOpacity>
   );
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>👥</Text>
-      <Text style={styles.emptyStateTitle}>
-        {searchQuery ? 'No friends found' : 'No friends yet'}
-      </Text>
-      <Text style={styles.emptyStateSubtitle}>
-        {searchQuery 
-          ? `No friends found matching "${searchQuery}"`
-          : 'Find new friends to start chatting!'
-        }
-      </Text>
-    </View>
-  );
+  const renderEmptyState = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color="#25D366" />
+          <Text style={styles.emptyStateTitle}>Loading friends...</Text>
+        </View>
+      );
+    }
 
-  const renderLoadingState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>⏳</Text>
-      <Text style={styles.emptyStateTitle}>Loading...</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        Loading your friends list
-      </Text>
-    </View>
-  );
+    if (searchQuery && filteredFriends.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateIcon}>🔍</Text>
+          <Text style={styles.emptyStateTitle}>No friends found</Text>
+          <Text style={styles.emptyStateSubtitle}>
+            No friends found matching "{searchQuery}"
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyStateIcon}>👥</Text>
+        <Text style={styles.emptyStateTitle}>No friends yet</Text>
+        <Text style={styles.emptyStateSubtitle}>
+          Find new friends to start chatting!
+        </Text>
+      </View>
+    );
+  };
 
   return (
-    <View style={styles.container}>
-      {/* Search Bar */}
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
       <SearchBar
-        onSearch={handleSearch}
-        placeholder="Search chats..."
+        onSearch={setSearchQuery}
+        placeholder="Search friends..."
+        autoFocus={false}
       />
-
-      {/* Friends List */}
+      
       <View style={styles.content}>
-        {loading ? (
-          renderLoadingState()
-        ) : filteredFriends.length === 0 ? (
-          renderEmptyState()
-        ) : (
+        {filteredFriends.length > 0 ? (
           <FlatList
+            ref={flatListRef}
             data={filteredFriends}
             renderItem={renderFriendItem}
             keyExtractor={(item) => item.id.toString()}
             style={styles.friendsList}
             contentContainerStyle={styles.friendsContent}
             showsVerticalScrollIndicator={false}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            onScrollBeginDrag={() => Keyboard.dismiss()}
           />
+        ) : (
+          renderEmptyState()
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -231,6 +260,7 @@ const styles = StyleSheet.create({
   },
   friendsContent: {
     padding: 20,
+    paddingTop: 10,
   },
   friendCard: {
     backgroundColor: '#ffffff',
@@ -252,12 +282,12 @@ const styles = StyleSheet.create({
   },
   friendAvatarContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: 12,
   },
   friendAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
@@ -265,10 +295,10 @@ const styles = StyleSheet.create({
     borderColor: '#25D366',
   },
   friendAvatarEmoji: {
-    fontSize: 30,
+    fontSize: 24,
   },
   friendInitial: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#075E54',
   },
@@ -276,17 +306,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
     borderColor: '#ffffff',
   },
   onlineIndicatorActive: {
     backgroundColor: '#25D366',
   },
   offlineIndicator: {
-    backgroundColor: '#666',
+    backgroundColor: '#999',
   },
   friendDetails: {
     flex: 1,
@@ -298,18 +328,18 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   friendName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#1A1A1A',
   },
   lastMessageTime: {
     fontSize: 12,
-    color: '#666',
+    color: '#999',
   },
   lastMessageContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   lastMessage: {
     fontSize: 14,
@@ -319,12 +349,12 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     backgroundColor: '#25D366',
-    borderRadius: 12,
-    minWidth: 24,
-    height: 24,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   unreadCount: {
     color: '#ffffff',

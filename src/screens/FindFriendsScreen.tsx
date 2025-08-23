@@ -1,25 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
+  FlatList,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
-import SearchBar from '../components/SearchBar';
 import DatabaseService, { User } from '../database/DatabaseService';
+import SearchBar from '../components/SearchBar';
 
 interface FindFriendsScreenProps {
   currentUser: User;
   onBack: () => void;
 }
 
+interface UserWithStatus extends User {
+  requestStatus: 'none' | 'pending' | 'accepted' | 'declined' | 'friends';
+}
+
 const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBack }) => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserWithStatus[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<UserWithStatus[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [requestStatuses, setRequestStatuses] = useState<{[key: number]: string}>({});
+  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [sendingRequest, setSendingRequest] = useState<number | null>(null);
+  const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     loadUsers();
@@ -27,7 +38,7 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
 
   useEffect(() => {
     if (searchQuery.trim()) {
-      searchUsers();
+      handleSearch();
     } else {
       setFilteredUsers([]);
     }
@@ -35,49 +46,119 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
 
   const loadUsers = async () => {
     try {
+      setLoading(true);
       const allUsers = await DatabaseService.getAllUsers();
       const otherUsers = allUsers.filter(user => user.id !== currentUser.id);
-      setUsers(otherUsers);
       
       // Load request statuses for all users
-      const statuses: {[key: number]: string} = {};
+      const usersWithStatus: UserWithStatus[] = [];
       for (const user of otherUsers) {
-        const status = await DatabaseService.getFriendRequestStatus(currentUser.id, user.id);
-        const isFriend = await DatabaseService.areFriends(currentUser.id, user.id);
-        
-        if (isFriend) {
-          statuses[user.id] = 'friends';
-        } else if (status) {
-          statuses[user.id] = status;
-        } else {
-          statuses[user.id] = 'none';
-        }
+        const status = await getFriendStatus(user.id);
+        usersWithStatus.push({
+          ...user,
+          requestStatus: status,
+        });
       }
-      setRequestStatuses(statuses);
+      
+      setUsers(usersWithStatus);
     } catch (error) {
       console.error('Error loading users:', error);
+      Alert.alert('Error', 'Failed to load users. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const searchUsers = async () => {
+  const getFriendStatus = async (userId: number): Promise<'none' | 'pending' | 'accepted' | 'declined' | 'friends'> => {
+    try {
+      // Check if already friends
+      const areFriends = await DatabaseService.areFriends(currentUser.id, userId);
+      if (areFriends) return 'friends';
+
+      // Check friend request status (sent by current user)
+      const sentRequestStatus = await DatabaseService.getFriendRequestStatus(currentUser.id, userId);
+      if (sentRequestStatus) {
+        return sentRequestStatus as 'pending' | 'accepted' | 'declined';
+      }
+
+      // Check if there's a received request (sent by other user)
+      const receivedRequestStatus = await DatabaseService.getFriendRequestStatus(userId, currentUser.id);
+      if (receivedRequestStatus === 'pending') {
+        return 'pending'; // Show as pending if we received a request from them
+      }
+
+      return 'none';
+    } catch (error) {
+      console.error('Error getting friend status:', error);
+      return 'none';
+    }
+  };
+
+  const handleSearch = async () => {
     if (!searchQuery.trim()) {
       setFilteredUsers([]);
       return;
     }
 
     try {
+      setSearching(true);
+      Keyboard.dismiss();
+      
       const searchResults = await DatabaseService.searchUsersByUsername(searchQuery, currentUser.id);
-      setFilteredUsers(searchResults);
+      
+      // Load statuses for search results
+      const usersWithStatus: UserWithStatus[] = [];
+      for (const user of searchResults) {
+        const status = await getFriendStatus(user.id);
+        usersWithStatus.push({
+          ...user,
+          requestStatus: status,
+        });
+      }
+      
+      setFilteredUsers(usersWithStatus);
     } catch (error) {
       console.error('Error searching users:', error);
+      Alert.alert('Error', 'Failed to search users. Please try again.');
+    } finally {
+      setSearching(false);
     }
   };
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
+  const handleSendFriendRequest = async (user: UserWithStatus) => {
+    setSendingRequest(user.id);
+    
+    try {
+      // Send the friend request
+      await DatabaseService.sendFriendRequest(currentUser.id, user.id, `Hi ${user.username}! I'd like to connect with you.`);
+      
+      // Update the user's status locally
+      const updatedUsers = users.map(u => 
+        u.id === user.id ? { ...u, requestStatus: 'pending' as const } : u
+      );
+      setUsers(updatedUsers);
+      
+      const updatedFilteredUsers = filteredUsers.map(u => 
+        u.id === user.id ? { ...u, requestStatus: 'pending' as const } : u
+      );
+      setFilteredUsers(updatedFilteredUsers);
+      
+      // Show success message
+      Alert.alert(
+        'Request Sent!', 
+        `Friend request sent to ${user.username} successfully!`,
+        [{ text: 'OK', style: 'default' }]
+      );
+      
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      Alert.alert('Error', 'Failed to send friend request. Please try again.');
+    } finally {
+      setSendingRequest(null);
+    }
   };
 
-  const handleSendFriendRequest = async (user: User) => {
+  const handleSendFriendRequestWithPrompt = (user: UserWithStatus) => {
     Alert.prompt(
       'Send Friend Request',
       `Send a friend request to ${user.username}?`,
@@ -86,16 +167,29 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
         {
           text: 'Send',
           onPress: async (message?: string) => {
+            setSendingRequest(user.id);
+            
             try {
-              await DatabaseService.sendFriendRequest(currentUser.id, user.id, message);
-              setRequestStatuses(prev => ({
-                ...prev,
-                [user.id]: 'pending'
-              }));
-              Alert.alert('Success', `Friend request sent to ${user.username}!`);
+              const requestMessage = message?.trim() || `Hi ${user.username}! I'd like to connect with you.`;
+              await DatabaseService.sendFriendRequest(currentUser.id, user.id, requestMessage);
+              
+              // Update the user's status locally
+              const updatedUsers = users.map(u => 
+                u.id === user.id ? { ...u, requestStatus: 'pending' as const } : u
+              );
+              setUsers(updatedUsers);
+              
+              const updatedFilteredUsers = filteredUsers.map(u => 
+                u.id === user.id ? { ...u, requestStatus: 'pending' as const } : u
+              );
+              setFilteredUsers(updatedFilteredUsers);
+              
+              Alert.alert('Request Sent!', `Friend request sent to ${user.username} successfully!`);
             } catch (error) {
               console.error('Error sending friend request:', error);
               Alert.alert('Error', 'Failed to send friend request. Please try again.');
+            } finally {
+              setSendingRequest(null);
             }
           }
         }
@@ -106,10 +200,52 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
     );
   };
 
-  const getActionButton = (user: User) => {
-    const status = requestStatuses[user.id] || 'none';
+  const handleCancelRequest = async (user: UserWithStatus) => {
+    Alert.alert(
+      'Cancel Friend Request',
+      `Cancel friend request to ${user.username}?`,
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // In a real app, you would have a cancel request method
+              // For now, we'll just update the local state
+              const updatedUsers = users.map(u => 
+                u.id === user.id ? { ...u, requestStatus: 'none' as const } : u
+              );
+              setUsers(updatedUsers);
+              
+              const updatedFilteredUsers = filteredUsers.map(u => 
+                u.id === user.id ? { ...u, requestStatus: 'none' as const } : u
+              );
+              setFilteredUsers(updatedFilteredUsers);
+              
+              Alert.alert('Cancelled', 'Friend request cancelled.');
+            } catch (error) {
+              console.error('Error cancelling friend request:', error);
+              Alert.alert('Error', 'Failed to cancel friend request. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
 
-    switch (status) {
+  const getActionButton = (user: UserWithStatus) => {
+    const isLoading = sendingRequest === user.id;
+    
+    if (isLoading) {
+      return (
+        <View style={[styles.actionButton, styles.loadingButton]}>
+          <ActivityIndicator size="small" color="#ffffff" />
+        </View>
+      );
+    }
+
+    switch (user.requestStatus) {
       case 'friends':
         return (
           <View style={[styles.actionButton, styles.friendsButton]}>
@@ -118,9 +254,13 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
         );
       case 'pending':
         return (
-          <View style={[styles.actionButton, styles.pendingButton]}>
-            <Text style={styles.pendingButtonText}>Request Sent</Text>
-          </View>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.pendingButton]} 
+            onPress={() => handleCancelRequest(user)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.pendingButtonText}>Pending</Text>
+          </TouchableOpacity>
         );
       case 'accepted':
         return (
@@ -130,8 +270,8 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
         );
       case 'declined':
         return (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.addButton]}
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.addButton]} 
             onPress={() => handleSendFriendRequest(user)}
             activeOpacity={0.7}
           >
@@ -140,8 +280,8 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
         );
       default:
         return (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.addButton]}
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.addButton]} 
             onPress={() => handleSendFriendRequest(user)}
             activeOpacity={0.7}
           >
@@ -151,7 +291,7 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
     }
   };
 
-  const renderUserItem = ({ item }: { item: User }) => (
+  const renderUserItem = ({ item }: { item: UserWithStatus }) => (
     <View style={styles.userCard}>
       <View style={styles.userInfo}>
         <View style={styles.userAvatar}>
@@ -178,45 +318,77 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
     </View>
   );
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>🔍</Text>
-      <Text style={styles.emptyStateTitle}>
-        {searchQuery ? 'No users found' : 'Search for friends'}
-      </Text>
-      <Text style={styles.emptyStateSubtitle}>
-        {searchQuery 
-          ? `No users found matching "${searchQuery}"`
-          : 'Enter a username to find new friends to connect with'
-        }
-      </Text>
-    </View>
-  );
+  const renderEmptyState = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color="#25D366" />
+          <Text style={styles.emptyStateTitle}>Loading users...</Text>
+        </View>
+      );
+    }
+
+    if (searching) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color="#25D366" />
+          <Text style={styles.emptyStateTitle}>Searching...</Text>
+        </View>
+      );
+    }
+
+    if (searchQuery && filteredUsers.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateIcon}>🔍</Text>
+          <Text style={styles.emptyStateTitle}>No users found</Text>
+          <Text style={styles.emptyStateSubtitle}>
+            No users found matching "{searchQuery}"
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyStateIcon}>👥</Text>
+        <Text style={styles.emptyStateTitle}>Search for friends</Text>
+        <Text style={styles.emptyStateSubtitle}>
+          Enter a username to find new friends to connect with
+        </Text>
+      </View>
+    );
+  };
 
   return (
-    <View style={styles.container}>
-      {/* Search Bar */}
-      <SearchBar 
-        onSearch={handleSearch}
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+      <SearchBar
+        onSearch={setSearchQuery}
         placeholder="Search by username..."
+        autoFocus={false}
       />
-
-      {/* Users List */}
+      
       <View style={styles.content}>
-        {filteredUsers.length === 0 ? (
-          renderEmptyState()
-        ) : (
+        {filteredUsers.length > 0 ? (
           <FlatList
+            ref={flatListRef}
             data={filteredUsers}
             renderItem={renderUserItem}
             keyExtractor={(item) => item.id.toString()}
             style={styles.usersList}
             contentContainerStyle={styles.usersContent}
             showsVerticalScrollIndicator={false}
+            onScrollBeginDrag={() => Keyboard.dismiss()}
           />
+        ) : (
+          renderEmptyState()
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -233,6 +405,7 @@ const styles = StyleSheet.create({
   },
   usersContent: {
     padding: 20,
+    paddingTop: 10,
   },
   userCard: {
     backgroundColor: '#ffffff',
@@ -241,6 +414,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -251,26 +425,26 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   userInfo: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   userAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
     borderWidth: 2,
     borderColor: '#25D366',
   },
   userAvatarEmoji: {
-    fontSize: 30,
+    fontSize: 24,
   },
   userInitial: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#075E54',
   },
@@ -278,7 +452,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#1A1A1A',
     marginBottom: 2,
@@ -305,20 +479,13 @@ const styles = StyleSheet.create({
   userStatus: {
     fontSize: 12,
     color: '#666',
-    fontWeight: '500',
   },
   actionButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    minWidth: 100,
+    alignItems: 'center',
   },
   addButton: {
     backgroundColor: '#25D366',
@@ -329,7 +496,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   pendingButton: {
-    backgroundColor: '#FFC107',
+    backgroundColor: '#FFA500',
   },
   pendingButtonText: {
     color: '#ffffff',
@@ -337,14 +504,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   friendsButton: {
-    backgroundColor: '#E8F5E8',
-    borderWidth: 1,
-    borderColor: '#25D366',
+    backgroundColor: '#128C7E',
   },
   friendsButtonText: {
-    color: '#25D366',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  loadingButton: {
+    backgroundColor: '#25D366',
   },
   emptyState: {
     flex: 1,
