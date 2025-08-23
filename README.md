@@ -1,97 +1,195 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# ChatApp - React Native Chat Application
 
-# Getting Started
+A modern chat application built with React Native and SQLite3 database, featuring user authentication, real-time messaging, and a beautiful UI.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Features
 
-## Step 1: Start Metro
+### 🔐 Authentication System
+- **User Registration**: Create new accounts with email and password
+- **User Login**: Secure authentication with existing credentials
+- **Password Validation**: Minimum 6 characters required
+- **Email Validation**: Proper email format verification
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+### 📱 User Interface
+- **Splash Screen**: Animated welcome screen with app branding
+- **Terms & Conditions**: Scrollable terms with agreement requirement
+- **Modern Design**: Clean, intuitive interface with smooth animations
+- **Responsive Layout**: Optimized for both iOS and Android
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+### 💬 Chat Functionality
+- **Real-time Messaging**: Send and receive messages instantly
+- **User Selection**: Choose from available users to chat with
+- **Message History**: Persistent chat history stored locally
+- **Message Status**: Read/unread message indicators
+- **Timestamp Display**: Message timing information
 
-```sh
-# Using npm
-npm start
+### 🗄️ Database
+- **SQLite3 Integration**: Local database for data persistence
+- **User Management**: Secure user account storage
+- **Message Storage**: Persistent chat message storage
+- **Data Integrity**: Foreign key constraints and validation
 
-# OR using Yarn
-yarn start
+## Screenshots
+
+The app includes:
+1. **Splash Screen** - Animated logo and app name
+2. **Terms & Conditions** - Scrollable terms with agree button
+3. **Login/Signup** - Combined authentication screen
+4. **Chat Interface** - Main messaging interface
+
+## Installation
+
+### Prerequisites
+- Node.js (v18 or higher)
+- React Native CLI
+- Android Studio (for Android development)
+- Xcode (for iOS development, macOS only)
+
+### Setup Steps
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd CApp
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Install additional dependencies**
+   ```bash
+   npm install react-native-sqlite-storage @react-navigation/native @react-navigation/stack react-native-screens react-native-gesture-handler react-native-vector-icons
+   npm install --save-dev @types/react-native-sqlite-storage
+   ```
+
+4. **iOS Setup** (macOS only)
+   ```bash
+   cd ios
+   pod install
+   cd ..
+   ```
+
+5. **Run the application**
+   ```bash
+   # For Android
+   npm run android
+   
+   # For iOS
+   npm run ios
+   ```
+
+## Project Structure
+
+```
+CApp/
+├── src/
+│   ├── components/
+│   │   └── ChatInterface.tsx      # Main chat interface
+│   ├── database/
+│   │   └── DatabaseService.ts     # SQLite database operations
+│   ├── screens/
+│   │   ├── SplashScreen.tsx       # App splash screen
+│   │   ├── TermsScreen.tsx        # Terms and conditions
+│   │   └── AuthScreen.tsx         # Login/signup screen
+│   └── navigation/                 # Navigation components
+├── App.tsx                         # Main app component
+├── package.json                    # Dependencies and scripts
+└── README.md                       # This file
 ```
 
-## Step 2: Build and run your app
+## Database Schema
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+### Users Table
+- `id`: Primary key (auto-increment)
+- `email`: Unique email address
+- `password`: User password (stored as plain text for demo)
+- `createdAt`: Account creation timestamp
 
-### Android
+### Chat Messages Table
+- `id`: Primary key (auto-increment)
+- `senderId`: Foreign key to users table
+- `receiverId`: Foreign key to users table
+- `message`: Message content
+- `timestamp`: Message timestamp
+- `isRead`: Read status boolean
 
-```sh
-# Using npm
-npm run android
+## Usage
 
-# OR using Yarn
-yarn android
-```
+### First Time Setup
+1. Launch the app
+2. Wait for splash screen animation
+3. Read and agree to terms & conditions
+4. Create a new account or sign in
 
-### iOS
+### Using the Chat
+1. After authentication, you'll see available users
+2. Select a user to start chatting
+3. Type your message and tap send
+4. View chat history and send/receive messages
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+### Creating Multiple Users
+To test the chat functionality:
+1. Create multiple accounts with different email addresses
+2. Sign in with different accounts on different devices/emulators
+3. Start chatting between users
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+## Security Notes
 
-```sh
-bundle install
-```
+⚠️ **Important**: This is a demo application with basic security:
+- Passwords are stored as plain text (not recommended for production)
+- No encryption for messages
+- Local database only (no cloud sync)
 
-Then, and every time you update your native dependencies, run:
+For production use, implement:
+- Password hashing (bcrypt, Argon2)
+- End-to-end encryption
+- Secure API endpoints
+- JWT or OAuth authentication
 
-```sh
-bundle exec pod install
-```
+## Troubleshooting
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### Common Issues
 
-```sh
-# Using npm
-npm run ios
+1. **Database initialization fails**
+   - Ensure SQLite is properly linked
+   - Check device/emulator permissions
 
-# OR using Yarn
-yarn ios
-```
+2. **Build errors**
+   - Clean and rebuild: `cd android && ./gradlew clean && cd ..`
+   - Reset Metro cache: `npx react-native start --reset-cache`
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+3. **Navigation issues**
+   - Ensure all navigation dependencies are installed
+   - Check iOS pod installation
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+### Performance Tips
 
-## Step 3: Modify your app
+- Messages are loaded on-demand
+- Database operations are asynchronous
+- UI updates are optimized with React Native best practices
 
-Now that you have successfully run the app, let's make changes!
+## Contributing
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## License
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Congratulations! :tada:
+## Support
 
-You've successfully run and modified your React Native App. :partying_face:
+For support and questions:
+- Create an issue in the repository
+- Check the troubleshooting section
+- Review React Native documentation
 
-### Now what?
+---
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Built with ❤️ using React Native and SQLite3
+# Chat-App
