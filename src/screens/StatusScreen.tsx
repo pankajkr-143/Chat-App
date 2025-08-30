@@ -6,208 +6,321 @@ import {
   TouchableOpacity,
   FlatList,
   Alert,
+  RefreshControl,
+  Image,
 } from 'react-native';
-import DatabaseService, { User } from '../database/DatabaseService';
+import DatabaseService, { User, Status } from '../database/DatabaseService';
+import StatusService from '../services/StatusService';
+import StatusCreationModal from '../components/StatusCreationModal';
+import StatusViewerModal from '../components/StatusViewerModal';
 
-interface Status {
-  id: string;
-  userId: number;
-  username: string;
-  profilePicture?: string;
-  statusText: string;
-  timestamp: string;
-  isMyStatus: boolean;
+interface StatusWithUser extends Status {
+  user: User;
 }
 
 interface StatusScreenProps {
   currentUser: User;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 const StatusScreen: React.FC<StatusScreenProps> = ({ currentUser, onBack }) => {
-  const [statuses, setStatuses] = useState<Status[]>([]);
-  const [myStatus, setMyStatus] = useState<Status | null>(null);
+  const [statuses, setStatuses] = useState<StatusWithUser[]>([]);
+  const [myStatuses, setMyStatuses] = useState<Status[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showCreationModal, setShowCreationModal] = useState(false);
+  const [showViewerModal, setShowViewerModal] = useState(false);
+  const [selectedStatusIndex, setSelectedStatusIndex] = useState(0);
 
   useEffect(() => {
     loadStatuses();
+    // Set up interval to clean up expired statuses and refresh
+    const interval = setInterval(() => {
+      cleanupExpiredStatuses();
+      loadStatuses();
+    }, 60000); // Every minute
+
+    return () => clearInterval(interval);
   }, []);
 
   const loadStatuses = async () => {
     try {
-      // Get friends list
-      const friends = await DatabaseService.getFriends(currentUser.id);
+      setLoading(true);
       
-      // Create mock statuses for friends (in a real app, these would come from database)
-      const friendStatuses: Status[] = friends.map((friend, index) => ({
-        id: `friend-${friend.id}`,
-        userId: friend.id,
-        username: friend.username,
-        profilePicture: friend.profilePicture,
-        statusText: getRandomStatusText(),
-        timestamp: getRandomTimestamp(),
-        isMyStatus: false,
-      }));
-
-      // Create my status
-      const myStatusItem: Status = {
-        id: 'my-status',
-        userId: currentUser.id,
-        username: currentUser.username,
-        profilePicture: currentUser.profilePicture,
-        statusText: 'Tap to add status update',
-        timestamp: 'Just now',
-        isMyStatus: true,
-      };
-
-      setStatuses([myStatusItem, ...friendStatuses]);
-      setMyStatus(myStatusItem);
+      // Get active statuses from friends only
+      const activeStatuses = await StatusService.getInstance().getActiveStatuses(currentUser.id);
+      
+      // Get current user's statuses
+      const userStatuses = await StatusService.getInstance().getUserStatuses(currentUser.id);
+      
+      setStatuses(activeStatuses);
+      setMyStatuses(userStatuses);
     } catch (error) {
       console.error('Error loading statuses:', error);
+      Alert.alert('Error', 'Failed to load statuses. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getRandomStatusText = (): string => {
-    const statuses = [
-      'Having a great day! 😊',
-      'Working on something exciting 💻',
-      'Coffee time ☕',
-      'Beautiful weather today 🌤️',
-      'Just finished a workout 💪',
-      'Reading a good book 📚',
-      'Cooking dinner 🍳',
-      'Watching a movie 🎬',
-      'On vacation! 🏖️',
-      'Busy with work 📊',
-    ];
-    return statuses[Math.floor(Math.random() * statuses.length)];
+  const cleanupExpiredStatuses = async () => {
+    try {
+      await StatusService.getInstance().cleanupExpiredStatuses();
+    } catch (error) {
+      console.error('Error cleaning up expired statuses:', error);
+    }
   };
 
-  const getRandomTimestamp = (): string => {
-    const timestamps = [
-      'Just now',
-      '2 minutes ago',
-      '5 minutes ago',
-      '10 minutes ago',
-      '1 hour ago',
-      '2 hours ago',
-      'Today',
-      'Yesterday',
-    ];
-    return timestamps[Math.floor(Math.random() * timestamps.length)];
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await cleanupExpiredStatuses();
+    await loadStatuses();
+    setRefreshing(false);
   };
 
   const handleAddStatus = () => {
-    Alert.prompt(
-      'Add Status',
-      'What\'s on your mind?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Post',
-          onPress: (statusText?: string) => {
-            if (statusText && statusText.trim()) {
-              const newStatus: Status = {
-                id: 'my-status',
-                userId: currentUser.id,
-                username: currentUser.username,
-                profilePicture: currentUser.profilePicture,
-                statusText: statusText.trim(),
-                timestamp: 'Just now',
-                isMyStatus: true,
-              };
-              setMyStatus(newStatus);
-              setStatuses(prev => [newStatus, ...prev.filter(s => !s.isMyStatus)]);
-            }
-          }
-        }
-      ],
-      'plain-text',
-      '',
-      'Type your status...'
-    );
+    setShowCreationModal(true);
   };
 
-  const handleStatusPress = (status: Status) => {
-    if (status.isMyStatus) {
-      handleAddStatus();
-    } else {
+  const handleStatusCreated = () => {
+    loadStatuses();
+  };
+
+  const handleStatusPress = (status: StatusWithUser, index: number) => {
+    setSelectedStatusIndex(index);
+    setShowViewerModal(true);
+  };
+
+  const handleMyStatusPress = () => {
+    if (myStatuses.length > 0) {
+      // Show options: View statuses or add new
       Alert.alert(
-        status.username,
-        status.statusText,
+        'My Status',
+        'What would you like to do?',
         [
-          { text: 'Reply', onPress: () => handleReplyToStatus(status) },
-          { text: 'Close', style: 'cancel' }
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'View My Statuses', onPress: () => handleViewMyStatuses() },
+          { text: 'Add New Status', onPress: handleAddStatus }
         ]
       );
+    } else {
+      handleAddStatus();
     }
   };
 
-  const handleReplyToStatus = (status: Status) => {
-    Alert.prompt(
-      `Reply to ${status.username}`,
-      'Send a message',
+  const handleViewMyStatuses = () => {
+    if (myStatuses.length > 0) {
+      // Find the index of my status in the main statuses array
+      const myStatusIndex = statuses.findIndex(s => s.userId === currentUser.id);
+      if (myStatusIndex >= 0) {
+        setSelectedStatusIndex(myStatusIndex);
+        setShowViewerModal(true);
+      }
+    }
+  };
+
+  const handleDeleteStatus = async (statusId: number) => {
+    Alert.alert(
+      'Delete Status',
+      'Are you sure you want to delete this status?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Send',
-          onPress: (message?: string) => {
-            if (message && message.trim()) {
-              Alert.alert('Message Sent', `Reply sent to ${status.username}`);
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await StatusService.getInstance().deleteStatus(statusId);
+              Alert.alert('Success', 'Status deleted successfully!');
+              loadStatuses(); // Refresh the list
+            } catch (error) {
+              console.error('Error deleting status:', error);
+              Alert.alert('Error', 'Failed to delete status. Please try again.');
             }
           }
         }
-      ],
-      'plain-text',
-      '',
-      'Type your reply...'
+      ]
     );
   };
 
-  const renderStatusItem = ({ item }: { item: Status }) => (
-    <TouchableOpacity
-      style={styles.statusItem}
-      onPress={() => handleStatusPress(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.statusAvatar}>
-        {item.profilePicture ? (
-          <Text style={styles.statusAvatarEmoji}>{item.profilePicture}</Text>
-        ) : (
-          <Text style={styles.statusAvatarText}>
-            {item.username.charAt(0).toUpperCase()}
-          </Text>
-        )}
-        {item.isMyStatus && (
+  const handleStatusLongPress = (status: StatusWithUser) => {
+    // Only allow deletion of own statuses
+    if (status.userId === currentUser.id) {
+      Alert.alert(
+        'Status Options',
+        'What would you like to do?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete Status', style: 'destructive', onPress: () => handleDeleteStatus(status.id) },
+          { text: 'View Status', onPress: () => handleStatusPress(status, statuses.indexOf(status)) }
+        ]
+      );
+    } else {
+      handleStatusPress(status, statuses.indexOf(status));
+    }
+  };
+
+  const handleStatusDeleted = () => {
+    loadStatuses();
+  };
+
+  const handleReplyToStatus = async (statusOwner: User, message: string) => {
+    try {
+      // Send the message to the status owner
+      await DatabaseService.saveMessage(currentUser.id, statusOwner.id, message);
+      
+      // Show success message
+      Alert.alert('Success', `Reply sent to ${statusOwner.username}`);
+      
+      // Optionally navigate to chat with the status owner
+      // You can implement navigation logic here if needed
+      
+    } catch (error) {
+      console.error('Error sending reply:', error);
+      Alert.alert('Error', 'Failed to send reply. Please try again.');
+    }
+  };
+
+  const renderMyStatus = () => {
+    const hasActiveStatus = myStatuses.length > 0;
+    const latestStatus = hasActiveStatus ? myStatuses[0] : null;
+
+    return (
+      <TouchableOpacity
+        style={styles.myStatusItem}
+        onPress={handleMyStatusPress}
+        onLongPress={() => hasActiveStatus ? handleStatusLongPress({ ...latestStatus!, user: currentUser }) : null}
+        activeOpacity={0.7}
+      >
+        <View style={styles.statusAvatar}>
+          {currentUser.profilePicture ? (
+            <Text style={styles.statusAvatarEmoji}>{currentUser.profilePicture}</Text>
+          ) : (
+            <Text style={styles.statusAvatarText}>
+              {currentUser.username.charAt(0).toUpperCase()}
+            </Text>
+          )}
           <View style={styles.addStatusIcon}>
             <Text style={styles.addStatusIconText}>+</Text>
           </View>
-        )}
-      </View>
-      
-      <View style={styles.statusItemContent}>
-        <Text style={styles.statusUsername}>
-          {item.isMyStatus ? 'My Status' : item.username}
-        </Text>
-        <Text style={styles.statusText} numberOfLines={1}>
-          {item.statusText}
-        </Text>
-        <Text style={styles.statusTimestamp}>{item.timestamp}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+          {hasActiveStatus && myStatuses.length > 1 && (
+            <View style={styles.statusCountBadge}>
+              <Text style={styles.statusCountText}>{myStatuses.length}</Text>
+            </View>
+          )}
+        </View>
+        
+        <View style={styles.statusItemContent}>
+          <Text style={styles.statusUsername}>My Status</Text>
+          <Text style={styles.statusText} numberOfLines={1}>
+            {hasActiveStatus 
+              ? myStatuses.length > 1 
+                ? `${myStatuses.length} statuses` 
+                : latestStatus?.type === 'text' 
+                  ? latestStatus.content 
+                  : latestStatus?.type === 'image' 
+                    ? '📷 Photo' 
+                    : '🎥 Video'
+              : 'Tap to add status update'
+            }
+          </Text>
+          <Text style={styles.statusTimestamp}>
+            {hasActiveStatus 
+              ? StatusService.getInstance().formatStatusTime(latestStatus!.timestamp)
+              : 'Just now'
+            }
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderStatusItem = ({ item, index }: { item: StatusWithUser; index: number }) => {
+    // Skip if this is the current user's status (we show it separately)
+    if (item.userId === currentUser.id) {
+      return null;
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.statusItem}
+        onPress={() => handleStatusPress(item, index)}
+        onLongPress={() => handleStatusLongPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.statusAvatar}>
+          {item.user.profilePicture ? (
+            <Text style={styles.statusAvatarEmoji}>{item.user.profilePicture}</Text>
+          ) : (
+            <Text style={styles.statusAvatarText}>
+              {item.user.username.charAt(0).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        
+        <View style={styles.statusItemContent}>
+          <Text style={styles.statusUsername}>{item.user.username}</Text>
+          <Text style={styles.statusText} numberOfLines={1}>
+            {item.type === 'text' 
+              ? item.content 
+              : item.type === 'image' 
+                ? '📷 Photo' 
+                : '🎥 Video'
+            }
+          </Text>
+          <Text style={styles.statusTimestamp}>
+            {StatusService.getInstance().formatStatusTime(item.timestamp)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
       <Text style={styles.emptyStateIcon}>📱</Text>
       <Text style={styles.emptyStateTitle}>No Status Updates</Text>
       <Text style={styles.emptyStateSubtitle}>
-        Be the first to share what's on your mind!
+        {statuses.length === 0 && myStatuses.length === 0 
+          ? 'Add friends to see their status updates, or create your own!'
+          : 'Be the first to share what\'s on your mind!'
+        }
       </Text>
       <TouchableOpacity style={styles.addStatusButton} onPress={handleAddStatus}>
         <Text style={styles.addStatusButtonText}>Add Status</Text>
       </TouchableOpacity>
     </View>
   );
+
+  const renderStatusList = () => {
+    const allStatuses = [renderMyStatus(), ...statuses.map((status, index) => 
+      status.userId !== currentUser.id ? renderStatusItem({ item: status, index }) : null
+    ).filter(Boolean)];
+
+    if (allStatuses.length === 0) {
+      return renderEmptyState();
+    }
+
+    return (
+      <FlatList
+        data={statuses}
+        renderItem={renderStatusItem}
+        keyExtractor={(item) => item.id.toString()}
+        style={styles.statusList}
+        contentContainerStyle={styles.statusContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#25D366']}
+            tintColor="#25D366"
+          />
+        }
+        ListHeaderComponent={renderMyStatus}
+      />
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -219,19 +332,33 @@ const StatusScreen: React.FC<StatusScreenProps> = ({ currentUser, onBack }) => {
 
       {/* Status List */}
       <View style={styles.content}>
-        {statuses.length === 0 ? (
-          renderEmptyState()
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Loading statuses...</Text>
+          </View>
         ) : (
-          <FlatList
-            data={statuses}
-            renderItem={renderStatusItem}
-            keyExtractor={(item) => item.id}
-            style={styles.statusList}
-            contentContainerStyle={styles.statusContent}
-            showsVerticalScrollIndicator={false}
-          />
+          renderStatusList()
         )}
       </View>
+
+      {/* Status Creation Modal */}
+      <StatusCreationModal
+        visible={showCreationModal}
+        onClose={() => setShowCreationModal(false)}
+        onStatusCreated={handleStatusCreated}
+        currentUser={currentUser}
+      />
+
+      {/* Status Viewer Modal */}
+      <StatusViewerModal
+        visible={showViewerModal}
+        onClose={() => setShowViewerModal(false)}
+        statuses={statuses}
+        initialIndex={selectedStatusIndex}
+        currentUser={currentUser}
+        onStatusDeleted={loadStatuses}
+        onReplyToStatus={handleReplyToStatus}
+      />
     </View>
   );
 };
@@ -277,6 +404,22 @@ const styles = StyleSheet.create({
   statusContent: {
     padding: 20,
     paddingTop: 10,
+  },
+  myStatusItem: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   statusItem: {
     backgroundColor: '#ffffff',
@@ -330,6 +473,24 @@ const styles = StyleSheet.create({
   addStatusIconText: {
     color: '#ffffff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  statusCountBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  statusCountText: {
+    color: '#ffffff',
+    fontSize: 12,
     fontWeight: 'bold',
   },
   statusItemContent: {
@@ -393,6 +554,15 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
   },
 });
 

@@ -18,7 +18,7 @@ interface Call {
 
 interface CallsScreenProps {
   currentUser: any;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 const CallsScreen: React.FC<CallsScreenProps> = ({ currentUser, onBack }) => {

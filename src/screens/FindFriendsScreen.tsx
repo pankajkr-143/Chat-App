@@ -12,11 +12,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import DatabaseService, { User } from '../database/DatabaseService';
+import NotificationService from '../services/NotificationService';
 import SearchBar from '../components/SearchBar';
 
 interface FindFriendsScreenProps {
   currentUser: User;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 interface UserWithStatus extends User {
@@ -143,6 +144,17 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
       );
       setFilteredUsers(updatedFilteredUsers);
       
+      // Send native notification to the target user
+      try {
+        await NotificationService.getInstance().showFriendRequestNotification({
+          id: currentUser.id,
+          username: currentUser.username,
+          profilePicture: currentUser.profilePicture,
+        });
+      } catch (notificationError) {
+        console.log('Could not send notification:', notificationError);
+      }
+      
       // Show success message
       Alert.alert(
         'Request Sent!', 
@@ -183,6 +195,17 @@ const FindFriendsScreen: React.FC<FindFriendsScreenProps> = ({ currentUser, onBa
                 u.id === user.id ? { ...u, requestStatus: 'pending' as const } : u
               );
               setFilteredUsers(updatedFilteredUsers);
+              
+              // Send native notification to the target user
+              try {
+                await NotificationService.getInstance().showFriendRequestNotification({
+                  id: currentUser.id,
+                  username: currentUser.username,
+                  profilePicture: currentUser.profilePicture,
+                });
+              } catch (notificationError) {
+                console.log('Could not send notification:', notificationError);
+              }
               
               Alert.alert('Request Sent!', `Friend request sent to ${user.username} successfully!`);
             } catch (error) {

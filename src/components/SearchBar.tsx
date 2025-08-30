@@ -9,12 +9,16 @@ import {
 } from 'react-native';
 
 interface SearchBarProps {
-  onSearch: (query: string) => void;
+  value?: string;
+  onChangeText?: (text: string) => void;
+  onSearch?: (query: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
 }
 
 const SearchBar: React.FC<SearchBarProps> = ({ 
+  value,
+  onChangeText,
   onSearch, 
   placeholder = 'Search...', 
   autoFocus = false 
@@ -22,15 +26,30 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    onSearch(text);
+    if (onChangeText) {
+      onChangeText(text);
+    } else {
+      setSearchQuery(text);
+    }
+    if (onSearch) {
+      onSearch(text);
+    }
   };
 
   const handleClear = () => {
-    setSearchQuery('');
-    onSearch('');
+    const emptyText = '';
+    if (onChangeText) {
+      onChangeText(emptyText);
+    } else {
+      setSearchQuery(emptyText);
+    }
+    if (onSearch) {
+      onSearch(emptyText);
+    }
     Keyboard.dismiss();
   };
+
+  const displayValue = value !== undefined ? value : searchQuery;
 
   return (
     <View style={styles.container}>
@@ -40,14 +59,14 @@ const SearchBar: React.FC<SearchBarProps> = ({
           style={styles.searchInput}
           placeholder={placeholder}
           placeholderTextColor="#999"
-          value={searchQuery}
+          value={displayValue}
           onChangeText={handleSearch}
           autoFocus={autoFocus}
           returnKeyType="search"
           onSubmitEditing={() => Keyboard.dismiss()}
           blurOnSubmit={true}
         />
-        {searchQuery.length > 0 && (
+        {displayValue.length > 0 && (
           <TouchableOpacity style={styles.clearButton} onPress={handleClear}>
             <Text style={styles.clearButtonText}>✕</Text>
           </TouchableOpacity>

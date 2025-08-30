@@ -4,9 +4,14 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 interface BottomNavigationProps {
   activeTab: 'chat' | 'find' | 'call' | 'status';
   onTabPress: (tab: 'chat' | 'find' | 'call' | 'status') => void;
+  unreadCount?: number;
 }
 
-const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabPress }) => {
+const BottomNavigation: React.FC<BottomNavigationProps> = ({ 
+  activeTab, 
+  onTabPress, 
+  unreadCount = 0 
+}) => {
   return (
     <View style={styles.tabContainer}>
       <TouchableOpacity
@@ -15,6 +20,13 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabPre
       >
         <View style={[styles.iconContainer, activeTab === 'chat' && styles.activeIconContainer]}>
           <Text style={[styles.icon, activeTab === 'chat' && styles.activeIcon]}>💬</Text>
+          {unreadCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {unreadCount > 99 ? '99+' : unreadCount.toString()}
+              </Text>
+            </View>
+          )}
         </View>
         <Text style={[styles.tabLabel, activeTab === 'chat' && styles.activeTabLabel]}>Chat</Text>
         {activeTab === 'chat' && <View style={styles.activeIndicator} />}
@@ -89,6 +101,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
+    position: 'relative',
   },
   activeIconContainer: {
     backgroundColor: '#E8F5E8',
@@ -116,6 +129,26 @@ const styles = StyleSheet.create({
     height: 3,
     backgroundColor: '#25D366',
     borderRadius: 2,
+  },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 

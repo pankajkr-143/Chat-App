@@ -23,12 +23,18 @@ interface FriendWithLastMessage extends User {
 interface FriendsListScreenProps {
   currentUser: User;
   onFriendSelect: (friend: User) => void;
+  searchQuery?: string;
+  onUnreadCountChange?: () => void;
 }
 
-const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFriendSelect }) => {
+const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ 
+  currentUser, 
+  onFriendSelect, 
+  searchQuery = '', 
+  onUnreadCountChange 
+}) => {
   const [friends, setFriends] = useState<FriendWithLastMessage[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<FriendWithLastMessage[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
@@ -83,6 +89,11 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
 
       setFriends(friendsWithMessages);
       setFilteredFriends(friendsWithMessages);
+      
+      // Call onUnreadCountChange if provided
+      if (onUnreadCountChange) {
+        onUnreadCountChange();
+      }
     } catch (error) {
       console.error('Error loading friends:', error);
       Alert.alert('Error', 'Failed to load friends. Please try again.');
@@ -214,17 +225,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-    >
-      <SearchBar
-        onSearch={setSearchQuery}
-        placeholder="Search friends..."
-        autoFocus={false}
-      />
-      
+    <View style={styles.container}>
       <View style={styles.content}>
         {filteredFriends.length > 0 ? (
           <FlatList
@@ -243,7 +244,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ currentUser, onFr
           renderEmptyState()
         )}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 

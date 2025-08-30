@@ -8,6 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import DatabaseService, { User, FriendRequest } from '../database/DatabaseService';
+import NotificationService from '../services/NotificationService';
 
 interface RequestsScreenProps {
   currentUser: User;
@@ -19,190 +20,129 @@ const RequestsScreen: React.FC<RequestsScreenProps> = ({ currentUser, onBack }) 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadFriendRequests();
+    loadRequests();
   }, []);
 
-  const loadFriendRequests = async () => {
+  const loadRequests = async () => {
     try {
       setLoading(true);
       const friendRequests = await DatabaseService.getFriendRequests(currentUser.id);
       setRequests(friendRequests);
     } catch (error) {
       console.error('Error loading friend requests:', error);
+      Alert.alert('Error', 'Failed to load friend requests. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAcceptRequest = (request: FriendRequest & { fromUser: User }) => {
-    Alert.alert(
-      'Accept Friend Request',
-      `Accept friend request from ${request.fromUser.username}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Accept', 
-          onPress: async () => {
-            try {
-              await DatabaseService.respondToFriendRequest(request.id, 'accepted');
-              setRequests(prev => prev.filter(r => r.id !== request.id));
-              Alert.alert('Success', `You are now friends with ${request.fromUser.username}!`);
-            } catch (error) {
-              console.error('Error accepting friend request:', error);
-              Alert.alert('Error', 'Failed to accept friend request. Please try again.');
-            }
-          }
-        }
-      ]
-    );
+  const handleAcceptRequest = async (request: FriendRequest & { fromUser: User }) => {
+    try {
+      await DatabaseService.respondToFriendRequest(request.id, 'accepted');
+      
+      // Send notification to the user who sent the request
+      try {
+        await NotificationService.getInstance().showFriendAcceptedNotification({
+          id: currentUser.id,
+          username: currentUser.username,
+          profilePicture: currentUser.profilePicture,
+        });
+      } catch (notificationError) {
+        console.log('Could not send notification:', notificationError);
+      }
+      
+      // Remove the accepted request from the list
+      setRequests(prev => prev.filter(r => r.id !== request.id));
+      
+      Alert.alert('Friend Added', `You are now friends with ${request.fromUser.username}!`);
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+    }
   };
 
-  const handleDeclineRequest = (request: FriendRequest & { fromUser: User }) => {
-    Alert.alert(
-      'Decline Friend Request',
-      `Decline friend request from ${request.fromUser.username}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Decline', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await DatabaseService.respondToFriendRequest(request.id, 'declined');
-              setRequests(prev => prev.filter(r => r.id !== request.id));
-              Alert.alert('Declined', 'Friend request declined.');
-            } catch (error) {
-              console.error('Error declining friend request:', error);
-              Alert.alert('Error', 'Failed to decline friend request. Please try again.');
-            }
-          }
-        }
-      ]
-    );
+  const handleDeclineRequest = async (request: FriendRequest & { fromUser: User }) => {
+    try {
+      await DatabaseService.respondToFriendRequest(request.id, 'declined');
+      
+      // Remove the declined request from the list
+      setRequests(prev => prev.filter(r => r.id !== request.id));
+      
+      Alert.alert('Request Declined', 'Friend request declined.');
+    } catch (error) {
+      console.error('Error declining friend request:', error);
+      Alert.alert('Error', 'Failed to decline friend request. Please try again.');
+    }
   };
 
-  const handleBlockUser = (request: FriendRequest & { fromUser: User }) => {
+  const handleBlockUser = async (request: FriendRequest & { fromUser: User }) => {
     Alert.alert(
       'Block User',
-      `Block ${request.fromUser.username}? This will prevent them from sending you requests.`,
+      `Are you sure you want to block ${request.fromUser.username}? This action cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Block', 
+        {
+          text: 'Block',
           style: 'destructive',
           onPress: async () => {
             try {
               await DatabaseService.respondToFriendRequest(request.id, 'blocked');
+              
+              // Remove the blocked request from the list
               setRequests(prev => prev.filter(r => r.id !== request.id));
-              Alert.alert('Blocked', `${request.fromUser.username} has been blocked.`);
+              
+              Alert.alert('User Blocked', `${request.fromUser.username} has been blocked.`);
             } catch (error) {
               console.error('Error blocking user:', error);
               Alert.alert('Error', 'Failed to block user. Please try again.');
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
-  const getRequestTypeIcon = (type: string) => {
-    switch (type) {
-      case 'friend_request':
-        return '👤';
-      case 'group_invite':
-        return '👥';
-      case 'message_request':
-        return '💬';
-      default:
-        return '📨';
-    }
-  };
-
-  const getRequestTypeText = (type: string) => {
-    switch (type) {
-      case 'friend_request':
-        return 'Friend Request';
-      case 'group_invite':
-        return 'Group Invite';
-      case 'message_request':
-        return 'Message Request';
-      default:
-        return 'Request';
-    }
-  };
-
-  const getRequestTypeColor = (type: string) => {
-    switch (type) {
-      case 'friend_request':
-        return '#25D366';
-      case 'group_invite':
-        return '#128C7E';
-      case 'message_request':
-        return '#075E54';
-      default:
-        return '#666';
-    }
-  };
-
-  const formatTimestamp = (timestamp: string) => {
+  const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMins < 60) {
-      return `${diffMins} minutes ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hours ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 1) {
+      return 'Just now';
+    } else if (diffInHours < 24) {
+      return `${Math.floor(diffInHours)}h ago`;
     } else {
-      return date.toLocaleDateString();
+      return `${Math.floor(diffInHours / 24)}d ago`;
     }
   };
 
   const renderRequestItem = ({ item }: { item: FriendRequest & { fromUser: User } }) => (
     <View style={styles.requestCard}>
-      <View style={styles.requestHeader}>
-        <View style={styles.userInfo}>
-          <View style={styles.userAvatar}>
-            {item.fromUser.profilePicture ? (
-              <Text style={styles.userAvatarEmoji}>{item.fromUser.profilePicture}</Text>
-            ) : (
-              <Text style={styles.userInitial}>
-                {item.fromUser.username.charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </View>
-          <View style={styles.userDetails}>
-            <Text style={styles.userName}>{item.fromUser.username}</Text>
-            <Text style={styles.userEmail}>{item.fromUser.email}</Text>
-            <View style={styles.requestTypeContainer}>
-              <Text style={styles.requestTypeIcon}>
-                {getRequestTypeIcon('friend_request')}
-              </Text>
-              <Text style={[
-                styles.requestTypeText,
-                { color: getRequestTypeColor('friend_request') }
-              ]}>
-                {getRequestTypeText('friend_request')}
-              </Text>
-            </View>
-          </View>
+      <View style={styles.userInfo}>
+        <View style={styles.userAvatar}>
+          {item.fromUser.profilePicture ? (
+            <Text style={styles.userAvatarEmoji}>{item.fromUser.profilePicture}</Text>
+          ) : (
+            <Text style={styles.userInitial}>
+              {item.fromUser.username.charAt(0).toUpperCase()}
+            </Text>
+          )}
         </View>
-        <Text style={styles.timestamp}>{formatTimestamp(item.createdAt)}</Text>
+        <View style={styles.userDetails}>
+          <Text style={styles.userName}>{item.fromUser.username}</Text>
+          <Text style={styles.userEmail}>{item.fromUser.email}</Text>
+          {item.message && (
+            <Text style={styles.requestMessage}>{item.message}</Text>
+          )}
+          <Text style={styles.timestamp}>{formatTimestamp(item.createdAt)}</Text>
+        </View>
       </View>
       
-      {item.message && (
-        <Text style={styles.requestMessage}>"{item.message}"</Text>
-      )}
-      
-      <View style={styles.requestActions}>
+      <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.actionButton, styles.acceptButton]}
           onPress={() => handleAcceptRequest(item)}
+          activeOpacity={0.7}
         >
           <Text style={styles.acceptButtonText}>Accept</Text>
         </TouchableOpacity>
@@ -210,6 +150,7 @@ const RequestsScreen: React.FC<RequestsScreenProps> = ({ currentUser, onBack }) 
         <TouchableOpacity
           style={[styles.actionButton, styles.declineButton]}
           onPress={() => handleDeclineRequest(item)}
+          activeOpacity={0.7}
         >
           <Text style={styles.declineButtonText}>Decline</Text>
         </TouchableOpacity>
@@ -217,6 +158,7 @@ const RequestsScreen: React.FC<RequestsScreenProps> = ({ currentUser, onBack }) 
         <TouchableOpacity
           style={[styles.actionButton, styles.blockButton]}
           onPress={() => handleBlockUser(item)}
+          activeOpacity={0.7}
         >
           <Text style={styles.blockButtonText}>Block</Text>
         </TouchableOpacity>
@@ -226,53 +168,37 @@ const RequestsScreen: React.FC<RequestsScreenProps> = ({ currentUser, onBack }) 
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>📨</Text>
-      <Text style={styles.emptyStateTitle}>No requests</Text>
+      <Text style={styles.emptyStateIcon}>📭</Text>
+      <Text style={styles.emptyStateTitle}>No Friend Requests</Text>
       <Text style={styles.emptyStateSubtitle}>
-        You don't have any pending friend requests at the moment
-      </Text>
-    </View>
-  );
-
-  const renderLoadingState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>⏳</Text>
-      <Text style={styles.emptyStateTitle}>Loading...</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        Loading your friend requests
+        You don't have any pending friend requests at the moment.
       </Text>
     </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* Header Info */}
-      <View style={styles.headerInfo}>
+      <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {requests.length} Request{requests.length !== 1 ? 's' : ''}
-        </Text>
-        <Text style={styles.headerSubtitle}>
-          Manage your friend requests and invitations
+          Friend Requests ({requests.length})
         </Text>
       </View>
-
-      {/* Requests List */}
-      <View style={styles.content}>
-        {loading ? (
-          renderLoadingState()
-        ) : requests.length === 0 ? (
-          renderEmptyState()
-        ) : (
-          <FlatList
-            data={requests}
-            renderItem={renderRequestItem}
-            keyExtractor={(item) => item.id.toString()}
-            style={styles.requestsList}
-            contentContainerStyle={styles.requestsContent}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </View>
+      
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading requests...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={requests}
+          renderItem={renderRequestItem}
+          keyExtractor={(item) => item.id.toString()}
+          style={styles.requestsList}
+          contentContainerStyle={styles.requestsContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={renderEmptyState}
+        />
+      )}
     </View>
   );
 };
@@ -282,48 +208,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F0F0F0',
   },
-  headerInfo: {
-    backgroundColor: '#ffffff',
-    padding: 20,
-    margin: 20,
-    marginBottom: 10,
-    borderRadius: 20,
+  header: {
+    backgroundColor: '#075E54',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#075E54',
-    marginBottom: 4,
+    color: '#ffffff',
   },
-  headerSubtitle: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
     fontSize: 16,
     color: '#666',
-    textAlign: 'center',
-  },
-  content: {
-    flex: 1,
   },
   requestsList: {
     flex: 1,
   },
   requestsContent: {
     padding: 20,
-    paddingTop: 10,
   },
   requestCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -333,21 +248,15 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  requestHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    marginBottom: 15,
   },
   userAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
@@ -356,10 +265,10 @@ const styles = StyleSheet.create({
     borderColor: '#25D366',
   },
   userAvatarEmoji: {
-    fontSize: 30,
+    fontSize: 24,
   },
   userInitial: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#075E54',
   },
@@ -367,7 +276,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#1A1A1A',
     marginBottom: 2,
@@ -377,50 +286,27 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
-  requestTypeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  requestTypeIcon: {
+  requestMessage: {
     fontSize: 14,
-    marginRight: 6,
-  },
-  requestTypeText: {
-    fontSize: 14,
-    fontWeight: '500',
+    color: '#333',
+    fontStyle: 'italic',
+    marginBottom: 4,
   },
   timestamp: {
     fontSize: 12,
     color: '#999',
   },
-  requestMessage: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 16,
-    fontStyle: 'italic',
-    paddingLeft: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#25D366',
-  },
-  requestActions: {
+  actions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
   },
   actionButton: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginHorizontal: 4,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
   },
   acceptButton: {
     backgroundColor: '#25D366',
@@ -439,7 +325,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   blockButton: {
-    backgroundColor: '#6C757D',
+    backgroundColor: '#FF4757',
   },
   blockButtonText: {
     color: '#ffffff',
@@ -468,6 +354,7 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
     lineHeight: 22,
+    paddingHorizontal: 20,
   },
 });
 

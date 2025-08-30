@@ -39,6 +39,26 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Load unread message count
+  useEffect(() => {
+    loadUnreadCount();
+    
+    // Set up interval to refresh unread count every 5 seconds
+    const interval = setInterval(loadUnreadCount, 5000);
+    
+    return () => clearInterval(interval);
+  }, [currentUser.id]);
+
+  const loadUnreadCount = async () => {
+    try {
+      const count = await DatabaseService.getUnreadMessageCount(currentUser.id);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Error loading unread count:', error);
+    }
+  };
 
   const handleTabPress = (tab: ActiveTab) => {
     setActiveTab(tab);
@@ -46,6 +66,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     if (tab === 'chat') {
       setChatView('friends-list');
       setSelectedFriend(null);
+      // Clear unread count when user taps on chat tab
+      setUnreadCount(0);
     }
   };
 
@@ -62,9 +84,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     setChatView('individual-chat');
   };
 
-  const handleBackToChat = () => {
+  const handleBackToChat = async () => {
     setChatView('friends-list');
     setSelectedFriend(null);
+    // Refresh unread count when returning from chat
+    await loadUnreadCount();
   };
 
   const handleMenuPress = () => {
@@ -113,124 +137,32 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
               currentUser={currentUser}
               selectedFriend={selectedFriend}
               onBack={handleBackToChat}
+              onMessageSent={loadUnreadCount}
+            />
+          );
+        } else {
+          return (
+            <FriendsListScreen
+              currentUser={currentUser}
+              searchQuery={searchQuery}
+              onFriendSelect={handleFriendSelect}
+              onUnreadCountChange={loadUnreadCount}
             />
           );
         }
-        return (
-          <View style={styles.friendsScreenContainer}>
-            <FriendsListScreen
-              currentUser={currentUser}
-              onFriendSelect={handleFriendSelect}
-            />
-          </View>
-        );
       case 'find':
-        return (
-          <FindFriendsScreen
-            currentUser={currentUser}
-            onBack={() => setActiveTab('chat')}
-          />
-        );
+        return <FindFriendsScreen currentUser={currentUser} />;
       case 'status':
-        return (
-          <StatusScreen
-            currentUser={currentUser}
-            onBack={() => setActiveTab('chat')}
-          />
-        );
+        return <StatusScreen currentUser={currentUser} />;
       case 'call':
-        return (
-          <CallsScreen
-            currentUser={currentUser}
-            onBack={() => setActiveTab('chat')}
-          />
-        );
+        return <CallsScreen currentUser={currentUser} />;
       default:
         return null;
     }
   };
 
-  const getHeaderTitle = () => {
-    if (menuScreen) {
-      switch (menuScreen) {
-        case 'profile': return 'Profile';
-        case 'groups': return 'Groups';
-        case 'settings': return 'Settings';
-        case 'about': return 'About';
-        case 'requests': return 'Requests';
-        default: return 'Menu';
-      }
-    }
-
-    switch (activeTab) {
-      case 'chat':
-        if (chatView === 'individual-chat' && selectedFriend) {
-          return selectedFriend.username;
-        }
-        return 'Chats';
-      case 'find': return 'Find Friends';
-      case 'status': return 'Status';
-      case 'call': return 'Calls';
-      default: return 'ChatApp';
-    }
-  };
-
-  const getHeaderSubtitle = () => {
-    if (menuScreen) {
-      switch (menuScreen) {
-        case 'profile': return 'Manage your profile';
-        case 'groups': return 'Create and manage groups';
-        case 'settings': return 'App preferences and settings';
-        case 'about': return 'App information and support';
-        case 'requests': return 'Friend requests and invitations';
-        default: return '';
-      }
-    }
-
-    switch (activeTab) {
-      case 'chat':
-        if (chatView === 'individual-chat' && selectedFriend) {
-          return selectedFriend.isOnline ? 'Online' : 'Offline';
-        }
-        return 'Your conversations';
-      case 'find': return 'Discover new friends';
-      case 'status': return 'Recent updates';
-      case 'call': return 'Call history';
-      default: return '';
-    }
-  };
-
-  const shouldShowBackButton = () => {
-    return menuScreen !== null ||
-           (activeTab === 'find' || activeTab === 'status' || activeTab === 'call') ||
-           (activeTab === 'chat' && chatView === 'individual-chat');
-  };
-
-  const handleBackPress = () => {
-    if (menuScreen) {
-      setMenuScreen(null);
-    } else if (activeTab === 'find' || activeTab === 'status' || activeTab === 'call') {
-      setActiveTab('chat');
-    } else if (activeTab === 'chat' && chatView === 'individual-chat') {
-      setChatView('friends-list');
-      setSelectedFriend(null);
-    }
-  };
-
-  const isIndividualChat = () => {
-    return activeTab === 'chat' && chatView === 'individual-chat';
-  };
-
-  const shouldShowMenu = () => {
-    return !menuScreen && !isIndividualChat();
-  };
-
-  const shouldShowBottomNav = () => {
-    return !menuScreen;
-  };
-
   const getNotificationTopOffset = () => {
-    return Math.max(insets.top, 20);
+    return Math.max(insets.top + 10, 20);
   };
 
   return (
@@ -246,41 +178,59 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
         <View style={styles.headerContent}>
-          {shouldShowBackButton() ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-              <Text style={styles.backButtonText}>‹</Text>
-            </TouchableOpacity>
+          {chatView === 'individual-chat' && selectedFriend ? (
+            <>
+              <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
+                <Text style={styles.backButtonText}>←</Text>
+              </TouchableOpacity>
+              <View style={styles.headerLogo}>
+                <Text style={styles.headerLogoText}>{selectedFriend.profilePicture}</Text>
+              </View>
+              <View style={styles.headerText}>
+                <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
+                <Text style={styles.headerSubtitle}>
+                  {selectedFriend.isOnline ? 'Online' : 'Offline'}
+                </Text>
+              </View>
+              <View style={styles.chatActions}>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>📞</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>📹</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>⋮</Text>
+                </TouchableOpacity>
+              </View>
+            </>
           ) : (
-            <View style={styles.headerLogo}>
-              <Text style={styles.headerLogoText}>💬</Text>
-            </View>
+            <>
+              <View style={styles.headerLogo}>
+                <Text style={styles.headerLogoText}>💬</Text>
+              </View>
+              <View style={styles.headerText}>
+                <Text style={styles.headerTitle}>Chats</Text>
+                <Text style={styles.headerSubtitle}>Your conversations</Text>
+              </View>
+              <HeaderMenu
+                currentUser={currentUser}
+                onNavigateToScreen={handleNavigateToScreen}
+                onLogout={handleLogout}
+              />
+            </>
           )}
-
-          <View style={styles.headerText}>
-            <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
-            <Text style={styles.headerSubtitle}>{getHeaderSubtitle()}</Text>
-          </View>
-
-          {isIndividualChat() ? (
-            <View style={styles.chatActions}>
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>📞</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>📹</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>⋮</Text>
-              </TouchableOpacity>
-            </View>
-          ) : shouldShowMenu() ? (
-            <HeaderMenu
-              onMenuPress={handleMenuPress}
-              onNavigateToScreen={handleNavigateToScreen}
-            />
-          ) : null}
         </View>
       </View>
+
+      {/* Search Bar - Only show on friends list */}
+      {activeTab === 'chat' && chatView === 'friends-list' && !menuScreen && (
+        <SearchBar
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search friends..."
+        />
+      )}
 
       {/* Content Area */}
       <View style={styles.content}>
@@ -288,15 +238,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
       </View>
 
       {/* Bottom Navigation */}
-      {shouldShowBottomNav() && (
-        <BottomNavigation
-          activeTab={activeTab}
-          onTabPress={handleTabPress}
-        />
-      )}
-
-      {/* Bottom Safe Area */}
-      <View style={{ height: insets.bottom }} />
+      <BottomNavigation
+        activeTab={activeTab}
+        onTabPress={handleTabPress}
+        unreadCount={unreadCount}
+      />
     </View>
   );
 };

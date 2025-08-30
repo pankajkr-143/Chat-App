@@ -9,24 +9,23 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  AppState,
 } from 'react-native';
-import DatabaseService, { ChatMessage, User } from '../database/DatabaseService';
+import DatabaseService, { User, ChatMessage } from '../database/DatabaseService';
+import NotificationService from '../services/NotificationService';
 
 interface ChatScreenProps {
   currentUser: User;
   selectedFriend: User;
   onBack: () => void;
+  onMessageSent?: () => void;
 }
 
-const ChatScreen: React.FC<ChatScreenProps> = ({ 
-  currentUser, 
-  selectedFriend, 
-  onBack 
-}) => {
+const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, onBack, onMessageSent }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [newMessage, setNewMessage] = useState('');
   const [friend, setFriend] = useState<User>(selectedFriend);
+  const [loading, setLoading] = useState(true);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -34,14 +33,59 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     loadFriendInfo();
     
     // Set up interval to refresh friend's online status
-    const interval = setInterval(loadFriendInfo, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, [selectedFriend]);
+    const interval = setInterval(loadFriendInfo, 30000); // Every 30 seconds
+    
+    // Listen for app state changes to mark messages as read when app becomes active
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && messages.length > 0) {
+        markMessagesAsRead();
+      }
+    });
+    
+    return () => {
+      clearInterval(interval);
+      subscription?.remove();
+    };
+  }, []);
+
+  // Mark messages as read when chat is opened
+  useEffect(() => {
+    if (messages.length > 0) {
+      markMessagesAsRead();
+    }
+  }, [messages]);
+
+  const markMessagesAsRead = async () => {
+    try {
+      // Get all unread messages sent by the friend to the current user
+      const unreadMessages = messages.filter(
+        msg => msg.senderId === selectedFriend.id && 
+               msg.receiverId === currentUser.id && 
+               !msg.isRead
+      );
+
+      // If there are unread messages, mark them all as read
+      if (unreadMessages.length > 0) {
+        // Use bulk update for efficiency
+        await DatabaseService.markAllMessagesAsRead(selectedFriend.id, currentUser.id);
+        
+        // Update local state to reflect read status
+        setMessages(prev => prev.map(msg => 
+          msg.senderId === selectedFriend.id && 
+          msg.receiverId === currentUser.id && 
+          !msg.isRead
+            ? { ...msg, isRead: true }
+            : msg
+        ));
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  };
 
   const loadFriendInfo = async () => {
     try {
-      // Get updated friend info to check online status
-      const updatedFriend = await DatabaseService.getUserByUsername(selectedFriend.username);
+      const updatedFriend = await DatabaseService.getUserByEmail(selectedFriend.email);
       if (updatedFriend) {
         setFriend(updatedFriend);
       }
@@ -52,63 +96,94 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const loadChatHistory = async () => {
     try {
-      setIsLoading(true);
+      setLoading(true);
       
-      // Check if users are friends
+      // Check if users are friends before loading chat
       const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
       if (!areFriends) {
-        console.log('Users are not friends, cannot load chat');
-        setIsLoading(false);
+        Alert.alert('Not Friends', 'You can only chat with your friends. Send them a friend request first.');
+        onBack();
         return;
       }
-
-      const chatHistory = await DatabaseService.getChatHistory(
-        currentUser.id,
-        selectedFriend.id
-      );
+      
+      const chatHistory = await DatabaseService.getChatHistory(currentUser.id, selectedFriend.id);
       setMessages(chatHistory);
-      setIsLoading(false);
-      
-      // Mark messages as read
-      const unreadMessages = chatHistory.filter(
-        msg => msg.senderId === selectedFriend.id && !msg.isRead
-      );
-      
-      for (const unreadMsg of unreadMessages) {
-        await DatabaseService.markMessageAsRead(unreadMsg.id);
-      }
     } catch (error) {
       console.error('Error loading chat history:', error);
-      setIsLoading(false);
+      Alert.alert('Error', 'Failed to load chat history. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const sendMessage = async () => {
-    if (!message.trim()) return;
+    if (!newMessage.trim()) return;
+
+    const messageText = newMessage.trim();
+    setNewMessage('');
 
     try {
-      // Check if users are still friends before sending
+      // Check if users are friends before sending message
       const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
       if (!areFriends) {
-        Alert.alert('Error', 'You can only send messages to your friends.');
+        Alert.alert('Not Friends', 'You can only chat with your friends.');
         return;
       }
 
-      const newMessage = await DatabaseService.saveMessage(
-        currentUser.id,
-        selectedFriend.id,
-        message.trim()
-      );
-      
-      setMessages(prev => [...prev, newMessage]);
-      setMessage('');
-      
+      // Save message to database
+      const savedMessage = await DatabaseService.saveMessage(currentUser.id, selectedFriend.id, messageText);
+
+      // Add message to local state
+      setMessages(prev => [...prev, savedMessage]);
+
+      // Send notification to the friend
+      try {
+        await NotificationService.getInstance().showMessageNotification(
+          {
+            id: currentUser.id,
+            username: currentUser.username,
+            profilePicture: currentUser.profilePicture,
+          },
+          messageText
+        );
+      } catch (notificationError) {
+        console.log('Could not send notification:', notificationError);
+      }
+
       // Scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
+
+      // Call onMessageSent callback if provided
+      if (onMessageSent) {
+        onMessageSent();
+      }
+
     } catch (error) {
       console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
+  };
+
+  const formatMessageTime = (timestamp: string): string => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatLastSeen = (lastSeen: string): string => {
+    const date = new Date(lastSeen);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) {
+      return 'Just now';
+    } else if (diffInMinutes < 60) {
+      return `${diffInMinutes}m ago`;
+    } else if (diffInMinutes < 1440) {
+      return `${Math.floor(diffInMinutes / 60)}h ago`;
+    } else {
+      return date.toLocaleDateString();
     }
   };
 
@@ -118,50 +193,65 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     return (
       <View style={[
         styles.messageContainer,
-        isOwnMessage ? styles.ownMessage : styles.otherMessage
+        isOwnMessage ? styles.ownMessage : styles.friendMessage
       ]}>
-        <Text style={[
-          styles.messageText,
-          isOwnMessage ? styles.ownMessageText : styles.otherMessageText
+        <View style={[
+          styles.messageBubble,
+          isOwnMessage ? styles.ownBubble : styles.friendBubble
         ]}>
-          {item.message}
-        </Text>
-        <View style={styles.messageFooter}>
           <Text style={[
-            styles.timestamp,
-            isOwnMessage ? styles.ownTimestamp : styles.otherTimestamp
+            styles.messageText,
+            isOwnMessage ? styles.ownMessageText : styles.friendMessageText
           ]}>
-            {new Date(item.timestamp).toLocaleTimeString([], { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })}
+            {item.message}
           </Text>
-          {isOwnMessage && (
-            <Text style={styles.readStatus}>
-              {item.isRead ? '✓✓' : '✓'}
+          <View style={styles.messageFooter}>
+            <Text style={[
+              styles.messageTime,
+              isOwnMessage ? styles.ownMessageTime : styles.friendMessageTime
+            ]}>
+              {formatMessageTime(item.timestamp)}
             </Text>
-          )}
+            {isOwnMessage && (
+              <Text style={styles.readStatus}>
+                {item.isRead ? '✓✓' : '✓'}
+              </Text>
+            )}
+          </View>
         </View>
       </View>
     );
   };
 
-  const formatLastSeen = (lastSeen: string) => {
-    const date = new Date(lastSeen);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.friendInfo}>
+        <View style={styles.friendAvatar}>
+          {friend.profilePicture ? (
+            <Text style={styles.friendAvatarEmoji}>{friend.profilePicture}</Text>
+          ) : (
+            <Text style={styles.friendInitial}>
+              {friend.username.charAt(0).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{friend.username}</Text>
+          <View style={styles.statusContainer}>
+            <View style={[styles.statusDot, friend.isOnline && styles.onlineDot]} />
+            <Text style={styles.statusText}>
+              {friend.isOnline ? 'Online' : `Last seen ${formatLastSeen(friend.lastSeen)}`}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <Text style={styles.emptyStateText}>
+        Start a conversation with {friend.username}!
+      </Text>
+    </View>
+  );
 
-    if (diffMins < 5) return 'last seen just now';
-    if (diffMins < 60) return `last seen ${diffMins} minutes ago`;
-    if (diffHours < 24) return `last seen ${diffHours} hours ago`;
-    if (diffDays < 7) return `last seen ${diffDays} days ago`;
-    return `last seen ${date.toLocaleDateString()}`;
-  };
-
-  if (isLoading) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Loading chat...</Text>
@@ -170,35 +260,13 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   }
 
   return (
-    <View style={styles.container}>
-      {/* Messages */}
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
       <View style={styles.messagesContainer}>
-        {messages.length === 0 ? (
-          <View style={styles.emptyChat}>
-            <View style={styles.emptyChatAvatar}>
-              {friend.profilePicture ? (
-                <Text style={styles.emptyChatAvatarEmoji}>{friend.profilePicture}</Text>
-              ) : (
-                <Text style={styles.emptyChatAvatarText}>
-                  {friend.username.charAt(0).toUpperCase()}
-                </Text>
-              )}
-            </View>
-            <Text style={styles.emptyChatTitle}>{friend.username}</Text>
-            <View style={styles.statusContainer}>
-              <View style={[
-                styles.statusDot,
-                friend.isOnline ? styles.onlineDot : styles.offlineDot
-              ]} />
-              <Text style={styles.emptyChatSubtitle}>
-                {friend.isOnline ? 'Online' : formatLastSeen(friend.lastSeen)}
-              </Text>
-            </View>
-            <Text style={styles.emptyChatMessage}>
-              Start a conversation with your friend!
-            </Text>
-          </View>
-        ) : (
+        {messages.length > 0 ? (
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -207,39 +275,33 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
             style={styles.messagesList}
             contentContainerStyle={styles.messagesContent}
             showsVerticalScrollIndicator={false}
-            inverted={false}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
           />
+        ) : (
+          renderEmptyState()
         )}
       </View>
 
-      {/* Input Area */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.inputContainer}
-      >
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            placeholder={`Message ${friend.username}...`}
-            placeholderTextColor="#999"
-            value={message}
-            onChangeText={setMessage}
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !message.trim() && styles.sendButtonDisabled
-            ]}
-            onPress={sendMessage}
-            disabled={!message.trim()}
-          >
-            <Text style={styles.sendButtonText}>📤</Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </View>
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.textInput}
+          value={newMessage}
+          onChangeText={setNewMessage}
+          placeholder="Type a message..."
+          placeholderTextColor="#999"
+          multiline
+          maxLength={1000}
+        />
+        <TouchableOpacity
+          style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+          onPress={sendMessage}
+          disabled={!newMessage.trim()}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.sendButtonText}>Send</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -248,42 +310,46 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F0F0F0',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
+  },
   messagesContainer: {
     flex: 1,
-    backgroundColor: '#E5DDD5',
   },
   messagesList: {
     flex: 1,
   },
   messagesContent: {
-    padding: 20,
-    paddingBottom: 20,
+    padding: 16,
   },
   messageContainer: {
-    marginVertical: 6,
-    maxWidth: '80%',
+    marginBottom: 12,
   },
   ownMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#DCF8C6',
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    alignItems: 'flex-end',
   },
-  otherMessage: {
-    alignSelf: 'flex-start',
+  friendMessage: {
+    alignItems: 'flex-start',
+  },
+  messageBubble: {
+    maxWidth: '80%',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  ownBubble: {
+    backgroundColor: '#25D366',
+    borderBottomRightRadius: 4,
+  },
+  friendBubble: {
     backgroundColor: '#ffffff',
-    borderRadius: 18,
     borderBottomLeftRadius: 4,
-    padding: 12,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -298,157 +364,127 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   ownMessageText: {
-    color: '#1A1A1A',
+    color: '#ffffff',
   },
-  otherMessageText: {
+  friendMessageText: {
     color: '#1A1A1A',
   },
   messageFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
-  timestamp: {
-    fontSize: 11,
-    opacity: 0.6,
+  messageTime: {
+    fontSize: 12,
     marginRight: 4,
   },
-  ownTimestamp: {
-    color: '#1A1A1A',
+  ownMessageTime: {
+    color: 'rgba(255, 255, 255, 0.8)',
   },
-  otherTimestamp: {
-    color: '#666',
+  friendMessageTime: {
+    color: '#999',
   },
   readStatus: {
-    fontSize: 11,
-    color: '#25D366',
-    fontWeight: 'bold',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
-  emptyChat: {
+  emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    padding: 20,
   },
-  emptyChatAvatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  friendInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  friendAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 4,
+    marginRight: 12,
+    borderWidth: 2,
     borderColor: '#25D366',
   },
-  emptyChatAvatarEmoji: {
-    fontSize: 60,
+  friendAvatarEmoji: {
+    fontSize: 30,
   },
-  emptyChatAvatarText: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#075E54',
-  },
-  emptyChatTitle: {
+  friendInitial: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#075E54',
-    marginBottom: 8,
+  },
+  friendDetails: {
+    flex: 1,
+  },
+  friendName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 4,
   },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
   },
   statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#999',
+    marginRight: 6,
   },
   onlineDot: {
     backgroundColor: '#25D366',
   },
-  offlineDot: {
-    backgroundColor: '#666',
-  },
-  emptyChatSubtitle: {
-    fontSize: 16,
+  statusText: {
+    fontSize: 14,
     color: '#666',
   },
-  emptyChatMessage: {
+  emptyStateText: {
     fontSize: 16,
-    color: '#999',
+    color: '#666',
     textAlign: 'center',
-    lineHeight: 22,
   },
   inputContainer: {
-    backgroundColor: '#ffffff',
-    padding: 20,
-    paddingBottom: 20,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    padding: 16,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
-  input: {
+  textInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F8F8',
     borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#F8F9FA',
-    color: '#1A1A1A',
+    paddingVertical: 10,
     marginRight: 12,
+    fontSize: 16,
     maxHeight: 100,
-    minHeight: 44,
+    minHeight: 40,
   },
   sendButton: {
     backgroundColor: '#25D366',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    minWidth: 60,
     alignItems: 'center',
-    shadowColor: '#25D366',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
   sendButtonDisabled: {
-    backgroundColor: '#E8E8E8',
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: '#E0E0E0',
   },
   sendButtonText: {
-    fontSize: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F0F0F0',
-  },
-  loadingText: {
+    color: '#ffffff',
     fontSize: 16,
-    color: '#666',
+    fontWeight: '600',
   },
 });
 

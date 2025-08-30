@@ -8,12 +8,14 @@ import {
   Animated,
   Dimensions,
 } from 'react-native';
+import { User } from '../database/DatabaseService';
 
 const { width, height } = Dimensions.get('window');
 
 interface HeaderMenuProps {
-  onMenuPress: () => void;
+  currentUser: User;
   onNavigateToScreen: (screen: string) => void;
+  onLogout: () => void;
 }
 
 interface MenuItem {
@@ -23,7 +25,7 @@ interface MenuItem {
   onPress: () => void;
 }
 
-const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress, onNavigateToScreen }) => {
+const HeaderMenu: React.FC<HeaderMenuProps> = ({ currentUser, onNavigateToScreen, onLogout }) => {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
 
@@ -109,7 +111,6 @@ const HeaderMenu: React.FC<HeaderMenuProps> = ({ onMenuPress, onNavigateToScreen
     } else {
       openMenu();
     }
-    onMenuPress();
   };
 
   return (

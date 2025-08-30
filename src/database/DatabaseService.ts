@@ -23,6 +23,24 @@ export interface ChatMessage {
   isRead: boolean;
 }
 
+export interface Status {
+  id: number;
+  userId: number;
+  type: 'text' | 'image' | 'video';
+  content: string;
+  caption?: string;
+  timestamp: string;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+export interface StatusView {
+  id: number;
+  statusId: number;
+  viewerId: number;
+  viewedAt: string;
+}
+
 export interface FriendRequest {
   id: number;
   fromUserId: number;
@@ -116,6 +134,8 @@ class DatabaseService {
       await this.database.executeSql(`DROP TABLE IF EXISTS messages`);
       await this.database.executeSql(`DROP TABLE IF EXISTS friend_requests`);
       await this.database.executeSql(`DROP TABLE IF EXISTS friendships`);
+      await this.database.executeSql(`DROP TABLE IF EXISTS statuses`);
+      await this.database.executeSql(`DROP TABLE IF EXISTS status_views`); // Add this line
       
       // Create all tables with new schema
       await this.createAllTables();
@@ -183,6 +203,34 @@ class DatabaseService {
         FOREIGN KEY (userId1) REFERENCES users (id),
         FOREIGN KEY (userId2) REFERENCES users (id),
         UNIQUE(userId1, userId2)
+      )
+    `);
+
+    // Statuses table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS statuses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('text', 'image', 'video')),
+        content TEXT NOT NULL,
+        caption TEXT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        expiresAt TEXT NOT NULL,
+        isActive BOOLEAN DEFAULT 1,
+        FOREIGN KEY (userId) REFERENCES users (id)
+      )
+    `);
+
+    // Status views table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS status_views (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        statusId INTEGER NOT NULL,
+        viewerId INTEGER NOT NULL,
+        viewedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (statusId) REFERENCES statuses (id),
+        FOREIGN KEY (viewerId) REFERENCES users (id),
+        UNIQUE(statusId, viewerId)
       )
     `);
 
@@ -593,6 +641,36 @@ class DatabaseService {
     }
   }
 
+  async markAllMessagesAsRead(senderId: number, receiverId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE messages SET isRead = 1 WHERE senderId = ? AND receiverId = ? AND isRead = 0',
+        [senderId, receiverId]
+      );
+    } catch (error) {
+      console.error('Error marking all messages as read:', error);
+      throw error;
+    }
+  }
+
+  async getUnreadMessageCount(userId: number): Promise<number> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT COUNT(*) as count FROM messages 
+        WHERE receiverId = ? AND isRead = 0
+      `, [userId]);
+
+      return result[0].rows.item(0).count;
+    } catch (error) {
+      console.error('Error getting unread message count:', error);
+      return 0;
+    }
+  }
+
   async getAllUsers(): Promise<User[]> {
     if (!this.database) throw new Error('Database not initialized');
 
@@ -626,6 +704,244 @@ class DatabaseService {
       await this.database.close();
       this.database = null;
       console.log('Database closed');
+    }
+  }
+
+  // Status methods
+  async createStatus(userId: number, type: 'text' | 'image' | 'video', content: string, caption?: string): Promise<Status> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // Set expiration time to 12 hours from now
+      const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+
+      const result = await this.database.executeSql(
+        'INSERT INTO statuses (userId, type, content, caption, expiresAt) VALUES (?, ?, ?, ?, ?)',
+        [userId, type, content, caption || null, expiresAt]
+      );
+
+      const statusId = result[0].insertId;
+      const status: Status = {
+        id: statusId,
+        userId,
+        type,
+        content,
+        caption,
+        timestamp: new Date().toISOString(),
+        expiresAt,
+        isActive: true,
+      };
+
+      return status;
+    } catch (error) {
+      console.error('Error creating status:', error);
+      throw error;
+    }
+  }
+
+  async getActiveStatuses(userId: number): Promise<(Status & { user: User })[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const result = await this.database.executeSql(`
+        SELECT s.*, u.username, u.profilePicture 
+        FROM statuses s 
+        JOIN users u ON s.userId = u.id 
+        WHERE s.isActive = 1 
+        AND s.expiresAt > ? 
+        AND (
+          s.userId = ? 
+          OR s.userId IN (
+            SELECT CASE 
+              WHEN userId1 = ? THEN userId2 
+              WHEN userId2 = ? THEN userId1 
+            END 
+            FROM friendships 
+            WHERE userId1 = ? OR userId2 = ?
+          )
+        )
+        ORDER BY s.timestamp DESC
+      `, [now, userId, userId, userId, userId, userId]);
+
+      const statuses: (Status & { user: User })[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        statuses.push({
+          id: row.id,
+          userId: row.userId,
+          type: row.type,
+          content: row.content,
+          caption: row.caption,
+          timestamp: row.timestamp,
+          expiresAt: row.expiresAt,
+          isActive: Boolean(row.isActive),
+          user: {
+            id: row.userId,
+            email: '', // Not needed for status display
+            username: row.username,
+            password: '', // Not needed for status display
+            profilePicture: row.profilePicture,
+            isOnline: false, // Not needed for status display
+            lastSeen: '', // Not needed for status display
+            createdAt: '', // Not needed for status display
+          },
+        });
+      }
+
+      return statuses;
+    } catch (error) {
+      console.error('Error getting active statuses:', error);
+      throw error;
+    }
+  }
+
+  async getUserStatuses(userId: number): Promise<Status[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      const result = await this.database.executeSql(`
+        SELECT * FROM statuses 
+        WHERE userId = ? AND isActive = 1 AND expiresAt > ? 
+        ORDER BY timestamp DESC
+      `, [userId, now]);
+
+      const statuses: Status[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        statuses.push({
+          id: row.id,
+          userId: row.userId,
+          type: row.type,
+          content: row.content,
+          caption: row.caption,
+          timestamp: row.timestamp,
+          expiresAt: row.expiresAt,
+          isActive: Boolean(row.isActive),
+        });
+      }
+
+      return statuses;
+    } catch (error) {
+      console.error('Error getting user statuses:', error);
+      throw error;
+    }
+  }
+
+  async deleteExpiredStatuses(): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      await this.database.executeSql(
+        'UPDATE statuses SET isActive = 0 WHERE expiresAt <= ?',
+        [now]
+      );
+    } catch (error) {
+      console.error('Error deleting expired statuses:', error);
+      throw error;
+    }
+  }
+
+  async deleteStatus(statusId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE statuses SET isActive = 0 WHERE id = ?',
+        [statusId]
+      );
+    } catch (error) {
+      console.error('Error deleting status:', error);
+      throw error;
+    }
+  }
+
+  // Status view methods
+  async recordStatusView(statusId: number, viewerId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'INSERT OR IGNORE INTO status_views (statusId, viewerId) VALUES (?, ?)',
+        [statusId, viewerId]
+      );
+    } catch (error) {
+      console.error('Error recording status view:', error);
+      throw error;
+    }
+  }
+
+  async getStatusViews(statusId: number): Promise<(StatusView & { viewer: User })[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT sv.*, u.username, u.profilePicture 
+        FROM status_views sv 
+        JOIN users u ON sv.viewerId = u.id 
+        WHERE sv.statusId = ? 
+        ORDER BY sv.viewedAt DESC
+      `, [statusId]);
+
+      const views: (StatusView & { viewer: User })[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        views.push({
+          id: row.id,
+          statusId: row.statusId,
+          viewerId: row.viewerId,
+          viewedAt: row.viewedAt,
+          viewer: {
+            id: row.viewerId,
+            email: '', // Not needed for display
+            username: row.username,
+            password: '', // Not needed for display
+            profilePicture: row.profilePicture,
+            isOnline: false, // Not needed for display
+            lastSeen: '', // Not needed for display
+            createdAt: '', // Not needed for display
+          },
+        });
+      }
+
+      return views;
+    } catch (error) {
+      console.error('Error getting status views:', error);
+      throw error;
+    }
+  }
+
+  async getStatusViewCount(statusId: number): Promise<number> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT COUNT(*) as count FROM status_views WHERE statusId = ?',
+        [statusId]
+      );
+
+      return result[0].rows.item(0).count;
+    } catch (error) {
+      console.error('Error getting status view count:', error);
+      return 0;
+    }
+  }
+
+  async hasUserViewedStatus(statusId: number, userId: number): Promise<boolean> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT COUNT(*) as count FROM status_views WHERE statusId = ? AND viewerId = ?',
+        [statusId, userId]
+      );
+
+      return result[0].rows.item(0).count > 0;
+    } catch (error) {
+      console.error('Error checking if user viewed status:', error);
+      return false;
     }
   }
 }
