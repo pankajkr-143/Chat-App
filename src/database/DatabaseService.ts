@@ -57,6 +57,18 @@ export interface Friendship {
   createdAt: string;
 }
 
+export interface Call {
+  id: string;
+  callerId: number;
+  receiverId: number;
+  type: 'voice' | 'video';
+  status: 'incoming' | 'outgoing' | 'missed' | 'ended' | 'declined';
+  duration: number; // in seconds
+  timestamp: string;
+  startTime?: string;
+  endTime?: string;
+}
+
 class DatabaseService {
   private database: SQLite.SQLiteDatabase | null = null;
 
@@ -136,6 +148,7 @@ class DatabaseService {
       await this.database.executeSql(`DROP TABLE IF EXISTS friendships`);
       await this.database.executeSql(`DROP TABLE IF EXISTS statuses`);
       await this.database.executeSql(`DROP TABLE IF EXISTS status_views`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS calls`); // Add this line
       
       // Create all tables with new schema
       await this.createAllTables();
@@ -234,6 +247,23 @@ class DatabaseService {
       )
     `);
 
+    // Create calls table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS calls (
+        id TEXT PRIMARY KEY,
+        callerId INTEGER NOT NULL,
+        receiverId INTEGER NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('voice', 'video')),
+        status TEXT NOT NULL CHECK (status IN ('incoming', 'outgoing', 'missed', 'ended', 'declined')),
+        duration INTEGER DEFAULT 0,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        startTime TEXT,
+        endTime TEXT,
+        FOREIGN KEY (callerId) REFERENCES users (id),
+        FOREIGN KEY (receiverId) REFERENCES users (id)
+      )
+    `);
+
     console.log('All tables created successfully');
   }
 
@@ -321,6 +351,36 @@ class DatabaseService {
       return null;
     } catch (error) {
       console.error('Error getting user by username:', error);
+      throw error;
+    }
+  }
+
+  async getUserById(userId: number): Promise<User | null> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT * FROM users WHERE id = ?',
+        [userId]
+      );
+
+      if (result[0].rows.length > 0) {
+        const row = result[0].rows.item(0);
+        return {
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          password: row.password,
+          profilePicture: row.profilePicture,
+          isOnline: Boolean(row.isOnline),
+          lastSeen: row.lastSeen,
+          createdAt: row.createdAt,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting user by id:', error);
       throw error;
     }
   }
@@ -942,6 +1002,117 @@ class DatabaseService {
     } catch (error) {
       console.error('Error checking if user viewed status:', error);
       return false;
+    }
+  }
+
+  // Call methods
+  async saveCall(call: Call): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(`
+        INSERT INTO calls (id, callerId, receiverId, type, status, duration, timestamp, startTime, endTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        call.id,
+        call.callerId,
+        call.receiverId,
+        call.type,
+        call.status,
+        call.duration,
+        call.timestamp,
+        call.startTime || null,
+        call.endTime || null,
+      ]);
+    } catch (error) {
+      console.error('Error saving call:', error);
+      throw error;
+    }
+  }
+
+  async updateCall(call: Call): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(`
+        UPDATE calls 
+        SET status = ?, duration = ?, startTime = ?, endTime = ?
+        WHERE id = ?
+      `, [
+        call.status,
+        call.duration,
+        call.startTime || null,
+        call.endTime || null,
+        call.id,
+      ]);
+    } catch (error) {
+      console.error('Error updating call:', error);
+      throw error;
+    }
+  }
+
+  async getCallById(callId: string): Promise<Call | null> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT * FROM calls WHERE id = ?',
+        [callId]
+      );
+
+      if (result[0].rows.length > 0) {
+        const row = result[0].rows.item(0);
+        return {
+          id: row.id,
+          callerId: row.callerId,
+          receiverId: row.receiverId,
+          type: row.type,
+          status: row.status,
+          duration: row.duration,
+          timestamp: row.timestamp,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting call by id:', error);
+      throw error;
+    }
+  }
+
+  async getCallHistory(userId: number): Promise<Call[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT * FROM calls 
+        WHERE callerId = ? OR receiverId = ?
+        ORDER BY timestamp DESC
+        LIMIT 50
+      `, [userId, userId]);
+
+      const calls: Call[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        calls.push({
+          id: row.id,
+          callerId: row.callerId,
+          receiverId: row.receiverId,
+          type: row.type,
+          status: row.status,
+          duration: row.duration,
+          timestamp: row.timestamp,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        });
+      }
+
+      return calls;
+    } catch (error) {
+      console.error('Error getting call history:', error);
+      return [];
     }
   }
 }

@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,7 +22,9 @@ import GroupsScreen from '../screens/GroupsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AboutScreen from '../screens/AboutScreen';
 import RequestsScreen from '../screens/RequestsScreen';
+import CallScreen from '../screens/CallScreen';
 import DatabaseService, { User } from '../database/DatabaseService';
+import CallService, { CallSession } from '../services/CallService';
 
 interface ChatInterfaceProps {
   currentUser: User;
@@ -40,6 +43,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
   const [searchQuery, setSearchQuery] = useState('');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  
+  // Call state
+  const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+  const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
+
+  // Initialize CallService
+  useEffect(() => {
+    const callService = CallService.getInstance();
+    callService.initialize();
+    
+    // Listen for call events
+    callService.addCallListener((call) => {
+      setActiveCall(call);
+    });
+
+    return () => {
+      callService.removeCallListener(() => {});
+    };
+  }, []);
 
   // Load unread message count
   useEffect(() => {
@@ -113,6 +135,88 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     setMenuScreen('requests');
   };
 
+  // Call handlers
+  const handleStartCall = async (receiver: User, type: 'voice' | 'video') => {
+    try {
+      const callService = CallService.getInstance();
+      const callSession = await callService.startCall(currentUser, receiver, type);
+      setActiveCall(callSession);
+    } catch (error) {
+      console.error('Error starting call:', error);
+      Alert.alert('Call Error', error instanceof Error ? error.message : 'Failed to start call');
+    }
+  };
+
+  const handleAnswerCall = async () => {
+    try {
+      if (incomingCall) {
+        const callService = CallService.getInstance();
+        const callSession = await callService.answerCall(incomingCall.callId, currentUser);
+        setActiveCall(callSession);
+        setIncomingCall(null);
+      }
+    } catch (error) {
+      console.error('Error answering call:', error);
+      Alert.alert('Call Error', 'Failed to answer call');
+    }
+  };
+
+  const handleDeclineCall = async () => {
+    try {
+      if (incomingCall) {
+        const callService = CallService.getInstance();
+        await callService.declineCall(incomingCall.callId, currentUser);
+        setIncomingCall(null);
+      }
+    } catch (error) {
+      console.error('Error declining call:', error);
+      setIncomingCall(null);
+    }
+  };
+
+  const handleEndCall = async () => {
+    try {
+      if (activeCall) {
+        const callService = CallService.getInstance();
+        const duration = callService.getCurrentCallDuration();
+        await callService.endCall(activeCall.callId, duration);
+        setActiveCall(null);
+      }
+    } catch (error) {
+      console.error('Error ending call:', error);
+      setActiveCall(null);
+    }
+  };
+
+  const handleIncomingCall = (callSession: CallSession) => {
+    setIncomingCall(callSession);
+  };
+
+  // Listen for incoming calls
+  useEffect(() => {
+    const callService = CallService.getInstance();
+    
+    const handleCallUpdate = (call: CallSession | null) => {
+      if (call && call.receiver.id === currentUser.id && call.caller.id !== currentUser.id) {
+        // This is an incoming call for the current user
+        setIncomingCall(call);
+      } else if (call && call.caller.id === currentUser.id) {
+        // This is an outgoing call from the current user
+        setActiveCall(call);
+      } else if (!call) {
+        // Call ended
+        setActiveCall(null);
+        setIncomingCall(null);
+      }
+    };
+
+    callService.addCallListener(handleCallUpdate);
+
+    return () => {
+      callService.removeCallListener(handleCallUpdate);
+    };
+  }, [currentUser.id]);
+
   const renderMenuScreen = () => {
     switch (menuScreen) {
       case 'profile': return <ProfileScreen currentUser={currentUser} onBack={handleBackFromMenu} onLogout={handleLogout} />;
@@ -155,7 +259,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
       case 'status':
         return <StatusScreen currentUser={currentUser} />;
       case 'call':
-        return <CallsScreen currentUser={currentUser} />;
+        return (
+          <CallsScreen 
+            currentUser={currentUser} 
+            onStartCall={handleStartCall}
+          />
+        );
       default:
         return null;
     }
@@ -167,84 +276,117 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      {/* Notification Banner */}
-      <View style={styles.notificationContainer}>
-        <NotificationBanner 
-          currentUser={currentUser} 
-          onNavigateToRequests={handleNavigateToRequests}
-        />
-      </View>
-
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <View style={styles.headerContent}>
-          {chatView === 'individual-chat' && selectedFriend ? (
-            <>
-              <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
-                <Text style={styles.backButtonText}>←</Text>
-              </TouchableOpacity>
-              <View style={styles.headerLogo}>
-                <Text style={styles.headerLogoText}>
-                  {selectedFriend.profilePicture || '👤'}
-                </Text>
-              </View>
-              <View style={styles.headerText}>
-                <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
-                <Text style={styles.headerSubtitle}>
-                  {selectedFriend.isOnline ? 'Online' : 'Offline'}
-                </Text>
-              </View>
-              <View style={styles.chatActions}>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionButtonText}>📞</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionButtonText}>📹</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionButtonText}>⋮</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.headerLogo}>
-                <Text style={styles.headerLogoText}>💬</Text>
-              </View>
-              <View style={styles.headerText}>
-                <Text style={styles.headerTitle}>Chats</Text>
-                <Text style={styles.headerSubtitle}>Your conversations</Text>
-              </View>
-              <HeaderMenu
-                currentUser={currentUser}
-                onNavigateToScreen={handleNavigateToScreen}
-                onLogout={handleLogout}
-              />
-            </>
-          )}
+      {/* Active Call Screen - Full Screen */}
+      {activeCall && (
+        <View style={styles.fullScreenCall}>
+          <CallScreen
+            callSession={activeCall}
+            onEndCall={handleEndCall}
+          />
         </View>
-      </View>
-
-      {/* Search Bar - Only show on friends list */}
-      {activeTab === 'chat' && chatView === 'friends-list' && !menuScreen && (
-        <SearchBar
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search friends..."
-        />
       )}
 
-      {/* Content Area */}
-      <View style={styles.content}>
-        {renderCurrentScreen()}
-      </View>
+      {/* Incoming Call Screen - Full Screen */}
+      {incomingCall && (
+        <View style={styles.fullScreenCall}>
+          <CallScreen
+            callSession={incomingCall}
+            onEndCall={handleDeclineCall}
+            onAnswerCall={handleAnswerCall}
+            onDeclineCall={handleDeclineCall}
+          />
+        </View>
+      )}
 
-      {/* Bottom Navigation */}
-      <BottomNavigation
-        activeTab={activeTab}
-        onTabPress={handleTabPress}
-        unreadCount={unreadCount}
-      />
+      {/* Main App Interface - Only show when no active calls */}
+      {!activeCall && !incomingCall && (
+        <>
+          {/* Notification Banner */}
+          <View style={styles.notificationContainer}>
+            <NotificationBanner 
+              currentUser={currentUser} 
+              onNavigateToRequests={handleNavigateToRequests}
+            />
+          </View>
+
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: insets.top }]}>
+            <View style={styles.headerContent}>
+              {chatView === 'individual-chat' && selectedFriend ? (
+                <>
+                  <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
+                    <Text style={styles.backButtonText}>←</Text>
+                  </TouchableOpacity>
+                  <View style={styles.headerLogo}>
+                    <Text style={styles.headerLogoText}>
+                      {selectedFriend.profilePicture || '👤'}
+                    </Text>
+                  </View>
+                  <View style={styles.headerText}>
+                    <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
+                    <Text style={styles.headerSubtitle}>
+                      {selectedFriend.isOnline ? 'Online' : 'Offline'}
+                    </Text>
+                  </View>
+                  <View style={styles.chatActions}>
+                    <TouchableOpacity 
+                      style={styles.actionButton}
+                      onPress={() => selectedFriend && handleStartCall(selectedFriend, 'voice')}
+                    >
+                      <Text style={styles.actionButtonText}>📞</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.actionButton}
+                      onPress={() => selectedFriend && handleStartCall(selectedFriend, 'video')}
+                    >
+                      <Text style={styles.actionButtonText}>📹</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionButton}>
+                      <Text style={styles.actionButtonText}>⋮</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.headerLogo}>
+                    <Text style={styles.headerLogoText}>💬</Text>
+                  </View>
+                  <View style={styles.headerText}>
+                    <Text style={styles.headerTitle}>Chats</Text>
+                    <Text style={styles.headerSubtitle}>Your conversations</Text>
+                  </View>
+                  <HeaderMenu
+                    currentUser={currentUser}
+                    onNavigateToScreen={handleNavigateToScreen}
+                    onLogout={handleLogout}
+                  />
+                </>
+              )}
+            </View>
+          </View>
+
+          {/* Search Bar - Only show on friends list */}
+          {activeTab === 'chat' && chatView === 'friends-list' && !menuScreen && (
+            <SearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search friends..."
+            />
+          )}
+
+          {/* Content Area */}
+          <View style={styles.content}>
+            {renderCurrentScreen()}
+          </View>
+
+          {/* Bottom Navigation */}
+          <BottomNavigation
+            activeTab={activeTab}
+            onTabPress={handleTabPress}
+            unreadCount={unreadCount}
+          />
+        </>
+      )}
     </View>
   );
 };
@@ -253,6 +395,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F0F0F0',
+  },
+  fullScreenCall: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    backgroundColor: '#000',
   },
   notificationContainer: {
     position: 'absolute',

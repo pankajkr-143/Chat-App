@@ -31,7 +31,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({
   currentUser, 
   onFriendSelect, 
   searchQuery = '', 
-  onUnreadCountChange 
+  onUnreadCountChange
 }) => {
   const [friends, setFriends] = useState<FriendWithLastMessage[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<FriendWithLastMessage[]>([]);

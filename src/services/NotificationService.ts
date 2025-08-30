@@ -230,41 +230,51 @@ class NotificationService {
     });
   }
 
-  // Incoming call notification
-  async showIncomingCallNotification(fromUser: { id: number; username: string; profilePicture?: string }, callId: string): Promise<void> {
-    await this.showNotification({
-      title: 'Incoming Call',
-      message: `${fromUser.username} is calling you`,
-      type: 'call',
-      userId: fromUser.id,
-      username: fromUser.username,
-      data: {
-        profilePicture: fromUser.profilePicture,
-        callId: callId,
-        callType: 'incoming',
-      },
-    });
-  }
-
-  // Missed call notification
-  async showMissedCallNotification(fromUser: { id: number; username: string; profilePicture?: string }): Promise<void> {
-    await this.showNotification({
-      title: 'Missed Call',
-      message: `You missed a call from ${fromUser.username}`,
-      type: 'missed_call',
-      userId: fromUser.id,
-      username: fromUser.username,
-      data: {
-        profilePicture: fromUser.profilePicture,
-        callType: 'missed',
-      },
-    });
-  }
-
-  // Cancel call notification
-  cancelCallNotification(callId: string): void {
+  async showMissedCallNotification(caller: any, receiver: any): Promise<void> {
     try {
-      PushNotification.cancelLocalNotifications({ id: callId });
+      const notificationData: NotificationData = {
+        id: `missed_call_${Date.now()}`,
+        title: 'Missed Call',
+        message: `Missed ${caller.username}'s call`,
+        type: 'missed_call',
+        userId: caller.id,
+        username: caller.username,
+        timestamp: Date.now(),
+      };
+
+      await this.showNotification(notificationData);
+    } catch (error) {
+      console.error('Error showing missed call notification:', error);
+    }
+  }
+
+  async showIncomingCallNotification(receiver: any, caller: any, callType: 'voice' | 'video'): Promise<void> {
+    try {
+      const notificationData: NotificationData = {
+        id: `incoming_call_${Date.now()}`,
+        title: `Incoming ${callType === 'video' ? 'Video' : 'Voice'} Call`,
+        message: `${caller.username} is calling you`,
+        type: 'call',
+        userId: caller.id,
+        username: caller.username,
+        timestamp: Date.now(),
+        data: {
+          callType,
+          callerId: caller.id,
+          receiverId: receiver.id,
+        },
+      };
+
+      await this.showNotification(notificationData);
+    } catch (error) {
+      console.error('Error showing incoming call notification:', error);
+    }
+  }
+
+  async cancelCallNotification(): Promise<void> {
+    try {
+      // Cancel any active call notifications
+      PushNotification.cancelAllLocalNotifications();
     } catch (error) {
       console.error('Error canceling call notification:', error);
     }
