@@ -10,7 +10,13 @@ import {
   Platform,
   Alert,
   AppState,
+  Image,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
+import { launchCamera, launchImageLibrary, ImagePickerResponse, MediaType } from 'react-native-image-picker';
+import { Video, ResizeMode } from 'react-native-video';
+import RNFS from 'react-native-fs';
 import DatabaseService, { User, ChatMessage } from '../database/DatabaseService';
 import NotificationService from '../services/NotificationService';
 
@@ -27,19 +33,28 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
   const [friend, setFriend] = useState<User>(selectedFriend);
   const [loading, setLoading] = useState(true);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [sendingMedia, setSendingMedia] = useState(false);
+  const [showFullScreenImage, setShowFullScreenImage] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string>('');
+  const [selectedMediaType, setSelectedMediaType] = useState<'image' | 'video'>('image');
+  const [savingImage, setSavingImage] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     loadChatHistory();
     loadFriendInfo();
     
-    // Set up interval to refresh friend's online status
-    const interval = setInterval(loadFriendInfo, 30000); // Every 30 seconds
+    // Set up interval to refresh friend's online status and clean expired media
+    const interval = setInterval(() => {
+      loadFriendInfo();
+      cleanupExpiredMedia();
+    }, 30000); // Every 30 seconds
     
     // Listen for app state changes to mark messages as read when app becomes active
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active' && messages.length > 0) {
         markMessagesAsRead();
+        cleanupExpiredMedia();
       }
     });
     
@@ -119,61 +134,260 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
     }
   };
 
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
+  const cleanupExpiredMedia = async () => {
+    try {
+      await DatabaseService.cleanupExpiredMediaMessages();
+      // Reload chat history to reflect changes
+      loadChatHistory();
+    } catch (error) {
+      console.error('Error cleaning up expired media:', error);
+    }
+  };
 
-    const messageText = newMessage.trim();
-    setNewMessage('');
+  const sendMessage = async () => {
+    if (!newMessage.trim() || isBlocked) return;
 
     try {
-      // Check if user is blocked
-      const isBlocked = await DatabaseService.isUserBlocked(currentUser.id, selectedFriend.id);
-      if (isBlocked) {
-        Alert.alert('User Blocked', 'You cannot send messages to this user.');
-        return;
-      }
-
-      // Check if users are friends before sending message
-      const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
-      if (!areFriends) {
-        Alert.alert('Not Friends', 'You can only chat with your friends.');
-        return;
-      }
-
-      // Save message to database
-      const savedMessage = await DatabaseService.saveMessage(currentUser.id, selectedFriend.id, messageText);
-
-      // Add message to local state
-      setMessages(prev => [...prev, savedMessage]);
-
-      // Send notification to the friend
-      try {
-        await NotificationService.getInstance().showMessageNotification(
-          {
-            id: currentUser.id,
-            username: currentUser.username,
-            profilePicture: currentUser.profilePicture,
-          },
-          messageText
-        );
-      } catch (notificationError) {
-        console.log('Could not send notification:', notificationError);
-      }
-
-      // Scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-
-      // Call onMessageSent callback if provided
-      if (onMessageSent) {
-        onMessageSent();
-      }
-
+      const message = await DatabaseService.saveMessage(
+        currentUser.id,
+        selectedFriend.id,
+        newMessage.trim()
+      );
+      
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
+      
+      // Send notification to friend (commented out until NotificationService is implemented)
+      // NotificationService.sendMessageNotification(selectedFriend.id, currentUser.username, newMessage.trim());
+      
+      onMessageSent?.();
     } catch (error) {
       console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      Alert.alert('Error', 'Failed to send message');
     }
+  };
+
+  const sendMediaMessage = async (mediaPath: string, messageType: 'image' | 'video') => {
+    try {
+      setSendingMedia(true);
+      
+      // Copy file to app's documents directory
+      const fileName = `media_${Date.now()}.${messageType === 'video' ? 'mp4' : 'jpg'}`;
+      const documentsPath = RNFS.DocumentDirectoryPath;
+      const destinationPath = `${documentsPath}/${fileName}`;
+      
+      await RNFS.copyFile(mediaPath, destinationPath);
+      
+      // Auto-save the media file
+      await autoSaveMedia(destinationPath, messageType);
+      
+      // Save message to database with file:// prefix
+      const dbPath = `file://${destinationPath}`;
+      
+      await DatabaseService.saveMessage(
+        currentUser.id,
+        selectedFriend.id,
+        `Sent ${messageType}`,
+        messageType,
+        dbPath
+      );
+      
+      // Refresh messages
+      loadChatHistory();
+      
+    } catch (error) {
+      console.error('Error sending media message:', error);
+      Alert.alert('Error', 'Failed to send media message');
+    } finally {
+      setSendingMedia(false);
+    }
+  };
+
+  // Auto-save media files when they're received
+  const autoSaveMedia = async (mediaPath: string, messageType: 'image' | 'video') => {
+    try {
+      const sourcePath = mediaPath.replace('file://', '');
+      const timestamp = Date.now();
+      const fileExtension = messageType === 'video' ? 'mp4' : 'jpg';
+      const fileName = `ChatApp_Auto_${timestamp}.${fileExtension}`;
+
+      if (Platform.OS === 'android') {
+        // Save to Downloads folder automatically
+        const downloadsPath = RNFS.DownloadDirectoryPath;
+        const autoSavePath = `${downloadsPath}/${fileName}`;
+
+        // Ensure Downloads directory exists
+        const downloadsExists = await RNFS.exists(downloadsPath);
+        if (!downloadsExists) {
+          await RNFS.mkdir(downloadsPath);
+        }
+
+        // Use copyFile instead of moveFile to keep the original in app's internal storage
+        await RNFS.copyFile(sourcePath, autoSavePath);
+
+        console.log('Auto-saved media to Downloads:', autoSavePath);
+      }
+    } catch (error) {
+      console.error('Error auto-saving media:', error);
+    }
+  };
+
+  // Save file directly from database path
+  const saveFileFromDatabase = async (mediaPath: string, messageType: 'image' | 'video') => {
+    try {
+      const sourcePath = mediaPath.replace('file://', '');
+      
+      // Check if source file exists
+      const sourceExists = await RNFS.exists(sourcePath);
+      if (!sourceExists) {
+        console.log('Source file not found:', sourcePath);
+        return false;
+      }
+      
+      const timestamp = Date.now();
+      const fileExtension = messageType === 'video' ? 'mp4' : 'jpg';
+      const fileName = `ChatApp_${timestamp}.${fileExtension}`;
+      
+      if (Platform.OS === 'android') {
+        const downloadsPath = RNFS.DownloadDirectoryPath;
+        const finalPath = `${downloadsPath}/${fileName}`;
+        
+        // Ensure Downloads directory exists
+        const downloadsExists = await RNFS.exists(downloadsPath);
+        if (!downloadsExists) {
+          await RNFS.mkdir(downloadsPath);
+        }
+        
+        await RNFS.copyFile(sourcePath, finalPath);
+        console.log('File saved from database:', finalPath);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error saving from database:', error);
+      return false;
+    }
+    return false;
+  };
+
+  const handleSaveMediaToGallery = async () => {
+    if (!selectedImage) return;
+
+    try {
+      setSavingImage(true);
+      
+      // Remove file:// prefix for RNFS operations
+      const sourcePath = selectedImage.replace('file://', '');
+      
+      // Check if source file exists before trying to copy
+      const sourceExists = await RNFS.exists(sourcePath);
+      if (!sourceExists) {
+        Alert.alert('Error', 'Source file not found. The file may have been moved or deleted.');
+        return;
+      }
+      
+      const timestamp = Date.now();
+      const fileExtension = selectedMediaType === 'video' ? 'mp4' : 'jpg';
+      const fileName = `ChatApp_${timestamp}.${fileExtension}`;
+      
+      if (Platform.OS === 'android') {
+        // Use RNFS's built-in methods for better compatibility
+        const downloadsPath = RNFS.DownloadDirectoryPath;
+        const finalPath = `${downloadsPath}/${fileName}`;
+        
+        // Ensure Downloads directory exists
+        const downloadsExists = await RNFS.exists(downloadsPath);
+        if (!downloadsExists) {
+          await RNFS.mkdir(downloadsPath);
+        }
+        
+        // Use copyFile instead of moveFile to keep the original in app's internal storage
+        await RNFS.copyFile(sourcePath, finalPath);
+        
+        console.log('File copied to Downloads:', finalPath);
+        Alert.alert('Saved!', `Media saved to Downloads: ${fileName}`);
+      } else {
+        // For iOS, save to Documents directory
+        const documentsPath = RNFS.DocumentDirectoryPath;
+        const finalPath = `${documentsPath}/${fileName}`;
+        await RNFS.copyFile(sourcePath, finalPath);
+        
+        Alert.alert('Saved!', `Media saved to Documents: ${fileName}`);
+      }
+      
+    } catch (error) {
+      console.error('Error saving media:', error);
+      Alert.alert('Error', `Failed to save file: ${error}`);
+    } finally {
+      setSavingImage(false);
+    }
+  };
+
+  const handleOpenCamera = async () => {
+    const options = {
+      mediaType: 'mixed' as MediaType,
+      includeBase64: false,
+      maxHeight: 1920,
+      maxWidth: 1080,
+      quality: 0.8 as const,
+      videoQuality: 'medium' as const,
+    };
+
+    try {
+      const result: ImagePickerResponse = await launchCamera(options);
+      
+      if (result.assets && result.assets[0] && result.assets[0].uri) {
+        const asset = result.assets[0];
+        const messageType = asset.type?.startsWith('video/') ? 'video' : 'image';
+        console.log('Camera media path:', asset.uri);
+        await sendMediaMessage(asset.uri!, messageType as 'image' | 'video');
+      }
+    } catch (error) {
+      console.error('Error opening camera:', error);
+      Alert.alert('Error', 'Failed to open camera');
+    }
+  };
+
+  const handleOpenGallery = async () => {
+    const options = {
+      mediaType: 'mixed' as MediaType,
+      includeBase64: false,
+      maxHeight: 1920,
+      maxWidth: 1080,
+      quality: 0.8 as const,
+      videoQuality: 'medium' as const,
+    };
+
+    try {
+      const result: ImagePickerResponse = await launchImageLibrary(options);
+      
+      if (result.assets && result.assets[0] && result.assets[0].uri) {
+        const asset = result.assets[0];
+        const messageType = asset.type?.startsWith('video/') ? 'video' : 'image';
+        console.log('Gallery media path:', asset.uri);
+        await sendMediaMessage(asset.uri!, messageType as 'image' | 'video');
+      }
+    } catch (error) {
+      console.error('Error opening gallery:', error);
+      Alert.alert('Error', 'Failed to open gallery');
+    }
+  };
+
+  const handleImagePress = (imagePath: string) => {
+    setSelectedImage(imagePath);
+    setSelectedMediaType('image');
+    setShowFullScreenImage(true);
+  };
+
+  const handleVideoPress = (videoPath: string) => {
+    setSelectedImage(videoPath);
+    setSelectedMediaType('video');
+    setShowFullScreenImage(true);
+  };
+
+  const handleCloseFullScreen = () => {
+    setShowFullScreenImage(false);
+    setSelectedImage('');
+    setSelectedMediaType('image');
   };
 
   const formatMessageTime = (timestamp: string): string => {
@@ -198,39 +412,81 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
   };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
-    const isOwnMessage = item.senderId === currentUser.id;
+    const isMyMessage = item.senderId === currentUser.id;
+    const isMediaMessage = item.messageType === 'image' || item.messageType === 'video';
     
+    // Check if media is expired
+    const isExpired = item.mediaExpiresAt && new Date(item.mediaExpiresAt) <= new Date();
+
     return (
-      <View style={[
-        styles.messageContainer,
-        isOwnMessage ? styles.ownMessage : styles.friendMessage
-      ]}>
-        <View style={[
-          styles.messageBubble,
-          isOwnMessage ? styles.ownBubble : styles.friendBubble
-        ]}>
-          <Text style={[
-            styles.messageText,
-            isOwnMessage ? styles.ownMessageText : styles.friendMessageText
-          ]}>
-            {item.message}
-          </Text>
-          <View style={styles.messageFooter}>
-            <Text style={[
-              styles.messageTime,
-              isOwnMessage ? styles.ownMessageTime : styles.friendMessageTime
-            ]}>
-              {formatMessageTime(item.timestamp)}
+      <View style={[styles.messageContainer, isMyMessage ? styles.myMessage : styles.friendMessage]}>
+        <View style={[styles.messageBubble, isMyMessage ? styles.myMessageBubble : styles.friendMessageBubble]}>
+          {isMediaMessage && item.mediaPath && !isExpired ? (
+            <View style={styles.mediaContainer}>
+              {item.messageType === 'image' ? (
+                <TouchableOpacity onPress={() => handleImagePress(item.mediaPath!)}>
+                  <Image 
+                    source={{ uri: item.mediaPath }} 
+                    style={styles.mediaImage}
+                    resizeMode="cover"
+                    onError={(error) => console.error('Image loading error:', error)}
+                  />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={() => handleVideoPress(item.mediaPath!)}>
+                  <Video
+                    source={{ uri: item.mediaPath }}
+                    style={styles.mediaVideo}
+                    resizeMode={ResizeMode.CONTAIN}
+                    repeat={true}
+                    paused={false}
+                    onError={(error) => console.error('Video loading error:', error)}
+                  />
+                </TouchableOpacity>
+              )}
+              {item.message && item.message !== `${item.messageType === 'image' ? '📷' : '🎥'} ${item.messageType}` && (
+                <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.friendMessageText]}>
+                  {item.message}
+                </Text>
+              )}
+              <View style={styles.mediaExpiryInfo}>
+                <Text style={styles.expiryText}>
+                  ⏰ Auto-deletes in {getTimeUntilExpiry(item.mediaExpiresAt!)}
+                </Text>
+              </View>
+            </View>
+          ) : isExpired ? (
+            <View style={styles.expiredMediaContainer}>
+              <Text style={styles.expiredText}>📷 Media expired</Text>
+            </View>
+          ) : (
+            <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.friendMessageText]}>
+              {item.message}
             </Text>
-            {isOwnMessage && (
-              <Text style={styles.readStatus}>
-                {item.isRead ? '✓✓' : '✓'}
-              </Text>
-            )}
-          </View>
+          )}
+          <Text style={[styles.timestamp, isMyMessage ? styles.myTimestamp : styles.friendTimestamp]}>
+            {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {item.isRead && isMyMessage && <Text style={styles.readIndicator}> ✓</Text>}
+          </Text>
         </View>
       </View>
     );
+  };
+
+  const getTimeUntilExpiry = (expiresAt: string): string => {
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffMs = expiry.getTime() - now.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffHours > 0) {
+      return `${diffHours}h ${diffMinutes}m`;
+    } else if (diffMinutes > 0) {
+      return `${diffMinutes}m`;
+    } else {
+      return 'Less than 1m';
+    }
   };
 
   const renderEmptyState = () => (
@@ -295,25 +551,75 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
         )}
       </View>
 
+      {/* Input Area */}
       <View style={styles.inputContainer}>
+        <TouchableOpacity style={styles.mediaButton} onPress={handleOpenGallery}>
+          <Text style={styles.mediaButtonText}>📷</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.mediaButton} onPress={handleOpenCamera}>
+          <Text style={styles.mediaButtonText}>📹</Text>
+        </TouchableOpacity>
         <TextInput
-          style={[styles.textInput, isBlocked && styles.textInputDisabled]}
+          style={styles.textInput}
           value={newMessage}
           onChangeText={setNewMessage}
-          placeholder={isBlocked ? "You cannot send messages to this user" : "Type a message..."}
+          placeholder="Type a message..."
           placeholderTextColor="#999"
           multiline
           maxLength={1000}
-          editable={!isBlocked}
         />
         <TouchableOpacity
-          style={[styles.sendButton, (!newMessage.trim() || isBlocked) && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (!newMessage.trim() && !sendingMedia) && styles.sendButtonDisabled]}
           onPress={sendMessage}
-          disabled={!newMessage.trim() || isBlocked}
+          disabled={!newMessage.trim() || isBlocked || sendingMedia}
         >
-          <Text style={styles.sendButtonText}>Send</Text>
+          {sendingMedia ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.sendButtonText}>➤</Text>
+          )}
         </TouchableOpacity>
       </View>
+
+      {/* Full Screen Media Modal */}
+      <Modal visible={showFullScreenImage} transparent animationType="fade">
+        <View style={styles.fullScreenModal}>
+          <View style={styles.fullScreenHeader}>
+            <TouchableOpacity style={styles.closeButton} onPress={handleCloseFullScreen}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.saveButton} 
+              onPress={handleSaveMediaToGallery}
+              disabled={savingImage}
+            >
+              {savingImage ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>💾 Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.fullScreenImageContainer}>
+            {selectedMediaType === 'image' ? (
+              <Image 
+                source={{ uri: selectedImage }} 
+                style={styles.fullScreenImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <Video
+                source={{ uri: selectedImage }}
+                style={styles.fullScreenVideo}
+                resizeMode={ResizeMode.CONTAIN}
+                repeat={true}
+                paused={false}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -344,7 +650,7 @@ const styles = StyleSheet.create({
   messageContainer: {
     marginBottom: 12,
   },
-  ownMessage: {
+  myMessage: {
     alignItems: 'flex-end',
   },
   friendMessage: {
@@ -356,11 +662,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 20,
   },
-  ownBubble: {
+  myMessageBubble: {
     backgroundColor: '#25D366',
     borderBottomRightRadius: 4,
   },
-  friendBubble: {
+  friendMessageBubble: {
     backgroundColor: '#ffffff',
     borderBottomLeftRadius: 4,
     shadowColor: '#000',
@@ -376,30 +682,60 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
   },
-  ownMessageText: {
+  myMessageText: {
     color: '#ffffff',
   },
   friendMessageText: {
     color: '#1A1A1A',
   },
-  messageFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+  mediaContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  mediaImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+  },
+  mediaVideo: {
+    width: 200,
+    height: 150,
+    borderRadius: 12,
+  },
+  mediaExpiryInfo: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     marginTop: 4,
   },
-  messageTime: {
+  expiryText: {
+    color: '#fff',
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  expiredMediaContainer: {
+    padding: 20,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  expiredText: {
+    color: '#999',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  timestamp: {
     fontSize: 12,
-    marginRight: 4,
-  },
-  ownMessageTime: {
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  friendMessageTime: {
+    marginTop: 4,
     color: '#999',
   },
-  readStatus: {
-    fontSize: 12,
+  myTimestamp: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  friendTimestamp: {
+    color: '#999',
+  },
+  readIndicator: {
     color: 'rgba(255, 255, 255, 0.8)',
   },
   emptyState: {
@@ -496,12 +832,103 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#ccc',
   },
   sendButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  mediaButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  mediaButtonText: {
+    fontSize: 20,
+  },
+  fullScreenModal: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  saveButton: {
+    backgroundColor: '#25D366',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fullScreenImageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenImage: {
+    width: '100%',
+    height: '100%',
+  },
+  fullScreenVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  saveAllButton: {
+    padding: 8,
+    marginRight: 8,
+    backgroundColor: '#007AFF',
+    borderRadius: 20,
+  },
+  saveAllButtonText: {
+    fontSize: 18,
+    color: '#fff',
+  },
+  callButton: {
+    padding: 8,
+    backgroundColor: '#34C759',
+    borderRadius: 20,
+  },
+  callButtonText: {
+    fontSize: 18,
+    color: '#fff',
+  },
+  testButton: {
+    padding: 8,
+    marginRight: 8,
+    backgroundColor: '#FF9500',
+    borderRadius: 20,
+  },
+  testButtonText: {
+    fontSize: 18,
+    color: '#fff',
   },
 });
 

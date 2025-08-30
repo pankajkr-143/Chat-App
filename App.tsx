@@ -48,7 +48,9 @@ const App: React.FC = () => {
 
   const initializeApp = async () => {
     try {
+      console.log('Initializing database...');
       await DatabaseService.initDatabase();
+      console.log('Database initialized successfully');
       
       // Create admin user if it doesn't exist
       await DatabaseService.createAdminUser();
@@ -63,6 +65,7 @@ const App: React.FC = () => {
       console.log('App initialized successfully');
     } catch (error) {
       console.error('Failed to initialize app:', error);
+      Alert.alert('Initialization Error', 'Failed to initialize the app. Please restart.');
     }
   };
 

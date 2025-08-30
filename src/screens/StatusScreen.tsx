@@ -354,10 +354,22 @@ const StatusScreen: React.FC<StatusScreenProps> = ({ currentUser, onBack }) => {
         visible={showViewerModal}
         onClose={() => setShowViewerModal(false)}
         statuses={statuses}
-        initialIndex={selectedStatusIndex}
+        currentIndex={selectedStatusIndex}
         currentUser={currentUser}
         onStatusDeleted={loadStatuses}
-        onReplyToStatus={handleReplyToStatus}
+        onReplyToStatus={(status) => {
+          const user: User = {
+            id: status.user.id,
+            username: status.user.username,
+            email: '',
+            password: '',
+            profilePicture: status.user.profilePicture,
+            isOnline: false,
+            lastSeen: '',
+            createdAt: '',
+          };
+          handleReplyToStatus(user, '');
+        }}
       />
     </View>
   );

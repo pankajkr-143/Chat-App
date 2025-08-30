@@ -21,6 +21,9 @@ export interface ChatMessage {
   senderId: number;
   receiverId: number;
   message: string;
+  messageType: 'text' | 'image' | 'video';
+  mediaPath?: string;
+  mediaExpiresAt?: string;
   timestamp: string;
   isRead: boolean;
 }
@@ -103,6 +106,11 @@ class DatabaseService {
 
   async initDatabase(): Promise<void> {
     try {
+      if (this.database) {
+        console.log('Database already initialized');
+        return;
+      }
+      
       this.database = await SQLite.openDatabase({
         name: 'ChatApp.db',
         location: 'default',
@@ -122,7 +130,7 @@ class DatabaseService {
     try {
       // Check if users table exists and get its structure
       let tableExists = false;
-      let needsMigration = false;
+      let needsMigration = true; // Force migration to add new columns
       
       try {
         const result = await this.database.executeSql(`PRAGMA table_info(users)`);
@@ -158,8 +166,8 @@ class DatabaseService {
         console.log('Migration needed - recreating database with new schema...');
         await this.recreateDatabaseWithNewSchema();
       } else {
-        console.log('Creating fresh database with new schema...');
-        await this.createAllTables();
+        console.log('Database exists, checking for missing columns...');
+        await this.addMissingColumns();
       }
       
     } catch (error) {
@@ -198,6 +206,45 @@ class DatabaseService {
     }
   }
 
+  private async addMissingColumns(): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // Check if messages table has the new columns
+      const result = await this.database.executeSql(`PRAGMA table_info(messages)`);
+      let hasMessageType = false;
+      let hasMediaPath = false;
+      let hasMediaExpiresAt = false;
+      
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const col = result[0].rows.item(i);
+        if (col.name === 'messageType') hasMessageType = true;
+        if (col.name === 'mediaPath') hasMediaPath = true;
+        if (col.name === 'mediaExpiresAt') hasMediaExpiresAt = true;
+      }
+      
+      // Add missing columns
+      if (!hasMessageType) {
+        await this.database.executeSql(`ALTER TABLE messages ADD COLUMN messageType TEXT DEFAULT 'text' CHECK (messageType IN ('text', 'image', 'video'))`);
+        console.log('Added messageType column to messages table');
+      }
+      
+      if (!hasMediaPath) {
+        await this.database.executeSql(`ALTER TABLE messages ADD COLUMN mediaPath TEXT`);
+        console.log('Added mediaPath column to messages table');
+      }
+      
+      if (!hasMediaExpiresAt) {
+        await this.database.executeSql(`ALTER TABLE messages ADD COLUMN mediaExpiresAt TEXT`);
+        console.log('Added mediaExpiresAt column to messages table');
+      }
+    } catch (error) {
+      console.error('Error adding missing columns:', error);
+      // If adding columns fails, recreate the database
+      await this.recreateDatabaseWithNewSchema();
+    }
+  }
+
   private async createAllTables(): Promise<void> {
     if (!this.database) throw new Error('Database not initialized');
 
@@ -224,6 +271,9 @@ class DatabaseService {
         senderId INTEGER NOT NULL,
         receiverId INTEGER NOT NULL,
         message TEXT NOT NULL,
+        messageType TEXT DEFAULT 'text' CHECK (messageType IN ('text', 'image', 'video')),
+        mediaPath TEXT,
+        mediaExpiresAt TEXT,
         timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
         isRead BOOLEAN DEFAULT 0,
         FOREIGN KEY (senderId) REFERENCES users (id),
@@ -750,13 +800,19 @@ class DatabaseService {
   }
 
   // Existing message methods
-  async saveMessage(senderId: number, receiverId: number, message: string): Promise<ChatMessage> {
+  async saveMessage(senderId: number, receiverId: number, message: string, messageType: 'text' | 'image' | 'video' = 'text', mediaPath?: string): Promise<ChatMessage> {
     if (!this.database) throw new Error('Database not initialized');
 
     try {
+      let mediaExpiresAt = null;
+      if (messageType === 'image' || messageType === 'video') {
+        // Set expiration to 24 hours from now
+        mediaExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      }
+
       const result = await this.database.executeSql(
-        'INSERT INTO messages (senderId, receiverId, message, timestamp) VALUES (?, ?, ?, ?)',
-        [senderId, receiverId, message, new Date().toISOString()]
+        'INSERT INTO messages (senderId, receiverId, message, messageType, mediaPath, mediaExpiresAt, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [senderId, receiverId, message, messageType, mediaPath || null, mediaExpiresAt, new Date().toISOString()]
       );
 
       const messageId = result[0].insertId;
@@ -765,6 +821,9 @@ class DatabaseService {
         senderId,
         receiverId,
         message,
+        messageType,
+        mediaPath: mediaPath || undefined,
+        mediaExpiresAt: mediaExpiresAt || undefined,
         timestamp: new Date().toISOString(),
         isRead: false,
       };
@@ -775,14 +834,16 @@ class DatabaseService {
   }
 
   async getChatHistory(userId1: number, userId2: number): Promise<ChatMessage[]> {
-    if (!this.database) throw new Error('Database not initialized');
+    await this.ensureDatabaseInitialized();
 
     try {
-      const result = await this.database.executeSql(`
+      const now = new Date().toISOString();
+      const result = await this.database!.executeSql(`
         SELECT * FROM messages 
         WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+        AND (mediaExpiresAt IS NULL OR mediaExpiresAt > ?)
         ORDER BY timestamp ASC
-      `, [userId1, userId2, userId2, userId1]);
+      `, [userId1, userId2, userId2, userId1, now]);
 
       const messages: ChatMessage[] = [];
       for (let i = 0; i < result[0].rows.length; i++) {
@@ -792,6 +853,9 @@ class DatabaseService {
           senderId: row.senderId,
           receiverId: row.receiverId,
           message: row.message,
+          messageType: row.messageType || 'text',
+          mediaPath: row.mediaPath,
+          mediaExpiresAt: row.mediaExpiresAt,
           timestamp: row.timestamp,
           isRead: Boolean(row.isRead),
         });
@@ -1894,6 +1958,27 @@ class DatabaseService {
     } catch (error) {
       console.error('Error getting group messages:', error);
       return [];
+    }
+  }
+
+  async cleanupExpiredMediaMessages(): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const now = new Date().toISOString();
+      await this.database.executeSql(
+        'DELETE FROM messages WHERE mediaExpiresAt IS NOT NULL AND mediaExpiresAt <= ?',
+        [now]
+      );
+    } catch (error) {
+      console.error('Error cleaning up expired media messages:', error);
+      throw error;
+    }
+  }
+
+  private async ensureDatabaseInitialized(): Promise<void> {
+    if (!this.database) {
+      await this.initDatabase();
     }
   }
 }

@@ -192,8 +192,38 @@ class StatusService {
     return await DatabaseService.createStatus(userId, 'image', imageBase64, caption);
   }
 
-  async createVideoStatus(userId: number, videoBase64: string, caption?: string): Promise<Status> {
-    return await DatabaseService.createStatus(userId, 'video', videoBase64, caption);
+  async createVideoStatus(userId: number, videoPath: string, caption?: string): Promise<Status> {
+    try {
+      // Validate videoPath
+      if (!videoPath || typeof videoPath !== 'string') {
+        throw new Error('Invalid video path provided');
+      }
+
+      // Copy video to app's documents directory for persistence
+      const fileName = `status_video_${Date.now()}.mp4`;
+      const documentsPath = RNFS.DocumentDirectoryPath;
+      const destinationPath = `${documentsPath}/${fileName}`;
+      
+      // Check if source file exists before copying
+      const sourceExists = await RNFS.exists(videoPath);
+      if (!sourceExists) {
+        throw new Error('Source video file not found');
+      }
+      
+      await RNFS.copyFile(videoPath, destinationPath);
+      
+      const status = await DatabaseService.createStatus(
+        userId,
+        'video',
+        destinationPath,
+        caption
+      );
+      
+      return status;
+    } catch (error) {
+      console.error('Error creating video status:', error);
+      throw new Error('Failed to create video status');
+    }
   }
 
   async getActiveStatuses(userId: number): Promise<(Status & { user: any })[]> {
