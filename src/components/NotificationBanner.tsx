@@ -23,10 +23,12 @@ const NotificationBanner: React.FC<NotificationBannerProps> = ({
   const [slideAnim] = useState(new Animated.Value(-100));
 
   useEffect(() => {
-    loadPendingRequests();
-    const interval = setInterval(loadPendingRequests, 10000); // Check every 10 seconds
-    return () => clearInterval(interval);
-  }, []);
+    if (currentUser && currentUser.id) {
+      loadPendingRequests();
+      const interval = setInterval(loadPendingRequests, 10000); // Check every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (pendingRequests.length > 0) {
@@ -49,6 +51,10 @@ const NotificationBanner: React.FC<NotificationBannerProps> = ({
 
   const loadPendingRequests = async () => {
     try {
+      if (!currentUser || !currentUser.id) {
+        console.log('currentUser is not available yet');
+        return;
+      }
       const requests = await DatabaseService.getFriendRequests(currentUser.id);
       setPendingRequests(requests);
     } catch (error) {
@@ -165,13 +171,9 @@ const NotificationBanner: React.FC<NotificationBannerProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     backgroundColor: '#25D366',
-    zIndex: 1000,
-    elevation: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -179,14 +181,14 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+    elevation: 10,
   },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   leftContent: {
     flex: 1,
@@ -218,13 +220,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: '#ffffff',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: 14,
     color: 'rgba(255, 255, 255, 0.9)',
   },
   actions: {

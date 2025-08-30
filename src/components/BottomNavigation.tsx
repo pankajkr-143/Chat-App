@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BottomNavigationProps {
   activeTab: 'chat' | 'find' | 'call' | 'status';
@@ -12,8 +13,10 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({
   onTabPress, 
   unreadCount = 0 
 }) => {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.tabContainer}>
+    <View style={[styles.tabContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       <TouchableOpacity
         style={[styles.tab, activeTab === 'chat' && styles.activeTab]}
         onPress={() => onTabPress('chat')}
@@ -73,7 +76,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#ffffff',
     paddingVertical: 8,
-    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: '#E8E8E8',
     shadowColor: '#000',

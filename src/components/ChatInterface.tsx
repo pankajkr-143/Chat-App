@@ -166,17 +166,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
   };
 
   return (
-    <View style={styles.container}>
-      {/* Notification Banner - Always on top */}
-      <View style={[styles.notificationContainer, { paddingTop: getNotificationTopOffset() }]}>
-        <NotificationBanner
-          currentUser={currentUser}
+    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+      {/* Notification Banner */}
+      <View style={styles.notificationContainer}>
+        <NotificationBanner 
+          currentUser={currentUser} 
           onNavigateToRequests={handleNavigateToRequests}
         />
       </View>
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 20) }]}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <View style={styles.headerContent}>
           {chatView === 'individual-chat' && selectedFriend ? (
             <>
@@ -184,7 +184,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
                 <Text style={styles.backButtonText}>←</Text>
               </TouchableOpacity>
               <View style={styles.headerLogo}>
-                <Text style={styles.headerLogoText}>{selectedFriend.profilePicture}</Text>
+                <Text style={styles.headerLogoText}>
+                  {selectedFriend.profilePicture || '👤'}
+                </Text>
               </View>
               <View style={styles.headerText}>
                 <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
@@ -254,10 +256,19 @@ const styles = StyleSheet.create({
   },
   notificationContainer: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    top: 80, // Position below header
+    left: 16,
+    right: 16,
     zIndex: 1000,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   header: {
     backgroundColor: '#075E54',
