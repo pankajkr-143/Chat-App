@@ -60,6 +60,12 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({
       const friendsWithMessages: FriendWithLastMessage[] = [];
 
       for (const friend of friendsList) {
+        // Check if user is blocked
+        const isBlocked = await DatabaseService.isUserBlocked(currentUser.id, friend.id);
+        if (isBlocked) {
+          continue; // Skip blocked users
+        }
+
         const chatHistory = await DatabaseService.getChatHistory(currentUser.id, friend.id);
         const lastMessage = chatHistory[chatHistory.length - 1];
         const unreadMessages = chatHistory.filter(
@@ -99,6 +105,7 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({
       Alert.alert('Error', 'Failed to load friends. Please try again.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 

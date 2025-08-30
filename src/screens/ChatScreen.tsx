@@ -26,6 +26,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
   const [newMessage, setNewMessage] = useState('');
   const [friend, setFriend] = useState<User>(selectedFriend);
   const [loading, setLoading] = useState(true);
+  const [isBlocked, setIsBlocked] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -98,14 +99,16 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
     try {
       setLoading(true);
       
-      // Check if users are friends before loading chat
-      const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
-      if (!areFriends) {
-        Alert.alert('Not Friends', 'You can only chat with your friends. Send them a friend request first.');
-        onBack();
+      // Check if user is blocked
+      const isBlocked = await DatabaseService.isUserBlocked(currentUser.id, selectedFriend.id);
+      if (isBlocked) {
+        setIsBlocked(true);
+        setMessages([]);
+        setLoading(false);
         return;
       }
-      
+
+      setIsBlocked(false);
       const chatHistory = await DatabaseService.getChatHistory(currentUser.id, selectedFriend.id);
       setMessages(chatHistory);
     } catch (error) {
@@ -123,6 +126,13 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
     setNewMessage('');
 
     try {
+      // Check if user is blocked
+      const isBlocked = await DatabaseService.isUserBlocked(currentUser.id, selectedFriend.id);
+      if (isBlocked) {
+        Alert.alert('User Blocked', 'You cannot send messages to this user.');
+        return;
+      }
+
       // Check if users are friends before sending message
       const areFriends = await DatabaseService.areFriends(currentUser.id, selectedFriend.id);
       if (!areFriends) {
@@ -246,7 +256,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
         </View>
       </View>
       <Text style={styles.emptyStateText}>
-        Start a conversation with {friend.username}!
+        {isBlocked 
+          ? `You have blocked ${friend.username}. You cannot send or receive messages.`
+          : `Start a conversation with ${friend.username}!`
+        }
       </Text>
     </View>
   );
@@ -284,19 +297,19 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ currentUser, selectedFriend, on
 
       <View style={styles.inputContainer}>
         <TextInput
-          style={styles.textInput}
+          style={[styles.textInput, isBlocked && styles.textInputDisabled]}
           value={newMessage}
           onChangeText={setNewMessage}
-          placeholder="Type a message..."
+          placeholder={isBlocked ? "You cannot send messages to this user" : "Type a message..."}
           placeholderTextColor="#999"
           multiline
           maxLength={1000}
+          editable={!isBlocked}
         />
         <TouchableOpacity
-          style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (!newMessage.trim() || isBlocked) && styles.sendButtonDisabled]}
           onPress={sendMessage}
-          disabled={!newMessage.trim()}
-          activeOpacity={0.7}
+          disabled={!newMessage.trim() || isBlocked}
         >
           <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>
@@ -469,6 +482,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     maxHeight: 100,
     minHeight: 40,
+  },
+  textInputDisabled: {
+    backgroundColor: '#F0F0F0',
+    color: '#999',
   },
   sendButton: {
     backgroundColor: '#25D366',

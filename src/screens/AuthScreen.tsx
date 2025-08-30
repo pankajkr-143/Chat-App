@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Image,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,6 +33,25 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
     const avatars = ['😀', '😎', '🤔', '😍', '🤗', '🙂', '😊', '🤩', '😄', '🥳', '🤓', '😇'];
     const randomAvatar = avatars[Math.floor(Math.random() * avatars.length)];
     setProfilePicture(randomAvatar);
+  };
+
+  const handleSupportPress = async () => {
+    const phoneNumber = '+918235910315';
+    const message = 'Hello! I need support with the CApp chat application.';
+    const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    
+    try {
+      const supported = await Linking.canOpenURL(whatsappUrl);
+      if (supported) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        // If WhatsApp is not installed, open in browser
+        const webUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+        await Linking.openURL(webUrl);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not open WhatsApp. Please make sure WhatsApp is installed.');
+    }
   };
 
   const validateEmail = (email: string): boolean => {
@@ -239,6 +259,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* Support Button */}
+          <TouchableOpacity style={styles.supportButton} onPress={handleSupportPress}>
+            <Text style={styles.supportButtonIcon}>💬</Text>
+            <Text style={styles.supportButtonText}>Need Help? Contact Support</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -462,6 +488,33 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  supportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#128C7E',
+    borderRadius: 15,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    marginTop: 20,
+    shadowColor: '#128C7E',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  supportButtonIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  supportButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

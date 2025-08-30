@@ -25,6 +25,7 @@ import RequestsScreen from '../screens/RequestsScreen';
 import CallScreen from '../screens/CallScreen';
 import DatabaseService, { User } from '../database/DatabaseService';
 import CallService, { CallSession } from '../services/CallService';
+import FriendOptionsModal from './FriendOptionsModal';
 
 interface ChatInterfaceProps {
   currentUser: User;
@@ -47,6 +48,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
   // Call state
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
+
+  // Friend options modal state
+  const [showFriendOptions, setShowFriendOptions] = useState(false);
+  const [selectedFriendForOptions, setSelectedFriendForOptions] = useState<User | null>(null);
 
   // Initialize CallService
   useEffect(() => {
@@ -192,6 +197,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     setIncomingCall(callSession);
   };
 
+  // Friend options handlers
+  const handleShowFriendOptions = (friend: User) => {
+    setSelectedFriendForOptions(friend);
+    setShowFriendOptions(true);
+  };
+
+  const handleCloseFriendOptions = () => {
+    setShowFriendOptions(false);
+    setSelectedFriendForOptions(null);
+  };
+
+  const handleFriendshipRemoved = () => {
+    // Refresh friends list and go back to friends list
+    setChatView('friends-list');
+    setSelectedFriend(null);
+    setShowFriendOptions(false);
+    setSelectedFriendForOptions(null);
+  };
+
+  const handleUserBlocked = () => {
+    // Refresh friends list and go back to friends list
+    setChatView('friends-list');
+    setSelectedFriend(null);
+  };
+
+  const handleUserUnblocked = () => {
+    // Refresh friends list
+    setChatView('friends-list');
+    setSelectedFriend(null);
+  };
+
   // Listen for incoming calls
   useEffect(() => {
     const callService = CallService.getInstance();
@@ -275,119 +311,135 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
   };
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      {/* Active Call Screen - Full Screen */}
-      {activeCall && (
-        <View style={styles.fullScreenCall}>
-          <CallScreen
-            callSession={activeCall}
-            onEndCall={handleEndCall}
-          />
-        </View>
-      )}
+    <>
+      {/* Friend Options Modal - Outside main container */}
+      <FriendOptionsModal
+        visible={showFriendOptions}
+        onClose={handleCloseFriendOptions}
+        currentUser={currentUser}
+        friend={selectedFriendForOptions || currentUser} // Fallback to prevent null
+        onFriendshipRemoved={handleFriendshipRemoved}
+        onUserBlocked={handleUserBlocked}
+        onUserUnblocked={handleUserUnblocked}
+      />
 
-      {/* Incoming Call Screen - Full Screen */}
-      {incomingCall && (
-        <View style={styles.fullScreenCall}>
-          <CallScreen
-            callSession={incomingCall}
-            onEndCall={handleDeclineCall}
-            onAnswerCall={handleAnswerCall}
-            onDeclineCall={handleDeclineCall}
-          />
-        </View>
-      )}
-
-      {/* Main App Interface - Only show when no active calls */}
-      {!activeCall && !incomingCall && (
-        <>
-          {/* Notification Banner */}
-          <View style={styles.notificationContainer}>
-            <NotificationBanner 
-              currentUser={currentUser} 
-              onNavigateToRequests={handleNavigateToRequests}
+      <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        {/* Active Call Screen - Full Screen */}
+        {activeCall && (
+          <View style={styles.fullScreenCall}>
+            <CallScreen
+              callSession={activeCall}
+              onEndCall={handleEndCall}
             />
           </View>
+        )}
 
-          {/* Header */}
-          <View style={[styles.header, { paddingTop: insets.top }]}>
-            <View style={styles.headerContent}>
-              {chatView === 'individual-chat' && selectedFriend ? (
-                <>
-                  <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
-                    <Text style={styles.backButtonText}>←</Text>
-                  </TouchableOpacity>
-                  <View style={styles.headerLogo}>
-                    <Text style={styles.headerLogoText}>
-                      {selectedFriend.profilePicture || '👤'}
-                    </Text>
-                  </View>
-                  <View style={styles.headerText}>
-                    <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
-                    <Text style={styles.headerSubtitle}>
-                      {selectedFriend.isOnline ? 'Online' : 'Offline'}
-                    </Text>
-                  </View>
-                  <View style={styles.chatActions}>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => selectedFriend && handleStartCall(selectedFriend, 'voice')}
-                    >
-                      <Text style={styles.actionButtonText}>📞</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => selectedFriend && handleStartCall(selectedFriend, 'video')}
-                    >
-                      <Text style={styles.actionButtonText}>📹</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Text style={styles.actionButtonText}>⋮</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <View style={styles.headerLogo}>
-                    <Text style={styles.headerLogoText}>💬</Text>
-                  </View>
-                  <View style={styles.headerText}>
-                    <Text style={styles.headerTitle}>Chats</Text>
-                    <Text style={styles.headerSubtitle}>Your conversations</Text>
-                  </View>
-                  <HeaderMenu
-                    currentUser={currentUser}
-                    onNavigateToScreen={handleNavigateToScreen}
-                    onLogout={handleLogout}
-                  />
-                </>
-              )}
+        {/* Incoming Call Screen - Full Screen */}
+        {incomingCall && (
+          <View style={styles.fullScreenCall}>
+            <CallScreen
+              callSession={incomingCall}
+              onEndCall={handleDeclineCall}
+              onAnswerCall={handleAnswerCall}
+              onDeclineCall={handleDeclineCall}
+            />
+          </View>
+        )}
+
+        {/* Main App Interface - Only show when no active calls */}
+        {!activeCall && !incomingCall && (
+          <>
+            {/* Notification Banner */}
+            <View style={styles.notificationContainer}>
+              <NotificationBanner 
+                currentUser={currentUser} 
+                onNavigateToRequests={handleNavigateToRequests}
+              />
             </View>
-          </View>
 
-          {/* Search Bar - Only show on friends list */}
-          {activeTab === 'chat' && chatView === 'friends-list' && !menuScreen && (
-            <SearchBar
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search friends..."
+            {/* Header */}
+            <View style={[styles.header, { paddingTop: insets.top }]}>
+              <View style={styles.headerContent}>
+                {chatView === 'individual-chat' && selectedFriend ? (
+                  <>
+                    <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
+                      <Text style={styles.backButtonText}>←</Text>
+                    </TouchableOpacity>
+                    <View style={styles.headerLogo}>
+                      <Text style={styles.headerLogoText}>
+                        {selectedFriend.profilePicture || '👤'}
+                      </Text>
+                    </View>
+                    <View style={styles.headerText}>
+                      <Text style={styles.headerTitle}>{selectedFriend.username}</Text>
+                      <Text style={styles.headerSubtitle}>
+                        {selectedFriend.isOnline ? 'Online' : 'Offline'}
+                      </Text>
+                    </View>
+                    <View style={styles.chatActions}>
+                      <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => selectedFriend && handleStartCall(selectedFriend, 'voice')}
+                      >
+                        <Text style={styles.actionButtonText}>📞</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => selectedFriend && handleStartCall(selectedFriend, 'video')}
+                      >
+                        <Text style={styles.actionButtonText}>📹</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => selectedFriend && handleShowFriendOptions(selectedFriend)}
+                      >
+                        <Text style={styles.actionButtonText}>⋮</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.headerLogo}>
+                      <Text style={styles.headerLogoText}>💬</Text>
+                    </View>
+                    <View style={styles.headerText}>
+                      <Text style={styles.headerTitle}>Chats</Text>
+                      <Text style={styles.headerSubtitle}>Your conversations</Text>
+                    </View>
+                    <HeaderMenu
+                      currentUser={currentUser}
+                      onNavigateToScreen={handleNavigateToScreen}
+                      onLogout={handleLogout}
+                    />
+                  </>
+                )}
+              </View>
+            </View>
+
+            {/* Search Bar - Only show on friends list */}
+            {activeTab === 'chat' && chatView === 'friends-list' && !menuScreen && (
+              <SearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search friends..."
+              />
+            )}
+
+            {/* Content Area */}
+            <View style={styles.content}>
+              {renderCurrentScreen()}
+            </View>
+
+            {/* Bottom Navigation */}
+            <BottomNavigation
+              activeTab={activeTab}
+              onTabPress={handleTabPress}
+              unreadCount={unreadCount}
             />
-          )}
-
-          {/* Content Area */}
-          <View style={styles.content}>
-            {renderCurrentScreen()}
-          </View>
-
-          {/* Bottom Navigation */}
-          <BottomNavigation
-            activeTab={activeTab}
-            onTabPress={handleTabPress}
-            unreadCount={unreadCount}
-          />
-        </>
-      )}
-    </View>
+          </>
+        )}
+      </View>
+    </>
   );
 };
 

@@ -149,6 +149,7 @@ class DatabaseService {
       await this.database.executeSql(`DROP TABLE IF EXISTS statuses`);
       await this.database.executeSql(`DROP TABLE IF EXISTS status_views`); // Add this line
       await this.database.executeSql(`DROP TABLE IF EXISTS calls`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS blocked_users`); // Add this line
       
       // Create all tables with new schema
       await this.createAllTables();
@@ -261,6 +262,19 @@ class DatabaseService {
         endTime TEXT,
         FOREIGN KEY (callerId) REFERENCES users (id),
         FOREIGN KEY (receiverId) REFERENCES users (id)
+      )
+    `);
+
+    // Create blocked_users table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS blocked_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        blockedUserId INTEGER NOT NULL,
+        blockedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users (id),
+        FOREIGN KEY (blockedUserId) REFERENCES users (id),
+        UNIQUE(userId, blockedUserId)
       )
     `);
 
@@ -1002,6 +1016,130 @@ class DatabaseService {
     } catch (error) {
       console.error('Error checking if user viewed status:', error);
       return false;
+    }
+  }
+
+  // Block and friendship management methods
+  async blockUser(userId: number, blockedUserId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // First, remove friendship if it exists
+      await this.database.executeSql(
+        'DELETE FROM friendships WHERE (userId1 = ? AND userId2 = ?) OR (userId1 = ? AND userId2 = ?)',
+        [userId, blockedUserId, blockedUserId, userId]
+      );
+
+      // Remove any pending friend requests
+      await this.database.executeSql(
+        'DELETE FROM friend_requests WHERE (fromUserId = ? AND toUserId = ?) OR (fromUserId = ? AND toUserId = ?)',
+        [userId, blockedUserId, blockedUserId, userId]
+      );
+
+      // Add to blocked users table (create if doesn't exist)
+      await this.database.executeSql(`
+        CREATE TABLE IF NOT EXISTS blocked_users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER NOT NULL,
+          blockedUserId INTEGER NOT NULL,
+          blockedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (userId) REFERENCES users (id),
+          FOREIGN KEY (blockedUserId) REFERENCES users (id),
+          UNIQUE(userId, blockedUserId)
+        )
+      `);
+
+      await this.database.executeSql(
+        'INSERT OR REPLACE INTO blocked_users (userId, blockedUserId) VALUES (?, ?)',
+        [userId, blockedUserId]
+      );
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      throw error;
+    }
+  }
+
+  async unblockUser(userId: number, blockedUserId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'DELETE FROM blocked_users WHERE userId = ? AND blockedUserId = ?',
+        [userId, blockedUserId]
+      );
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+      throw error;
+    }
+  }
+
+  async isUserBlocked(userId: number, blockedUserId: number): Promise<boolean> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT COUNT(*) as count FROM blocked_users WHERE userId = ? AND blockedUserId = ?',
+        [userId, blockedUserId]
+      );
+
+      return result[0].rows.item(0).count > 0;
+    } catch (error) {
+      console.error('Error checking if user is blocked:', error);
+      return false;
+    }
+  }
+
+  async removeFriendship(userId1: number, userId2: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // Remove friendship
+      await this.database.executeSql(
+        'DELETE FROM friendships WHERE (userId1 = ? AND userId2 = ?) OR (userId1 = ? AND userId2 = ?)',
+        [userId1, userId2, userId2, userId1]
+      );
+
+      // Remove any pending friend requests
+      await this.database.executeSql(
+        'DELETE FROM friend_requests WHERE (fromUserId = ? AND toUserId = ?) OR (fromUserId = ? AND toUserId = ?)',
+        [userId1, userId2, userId2, userId1]
+      );
+    } catch (error) {
+      console.error('Error removing friendship:', error);
+      throw error;
+    }
+  }
+
+  async getBlockedUsers(userId: number): Promise<User[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT u.* FROM users u
+        JOIN blocked_users bu ON u.id = bu.blockedUserId
+        WHERE bu.userId = ?
+        ORDER BY bu.blockedAt DESC
+      `, [userId]);
+
+      const blockedUsers: User[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        blockedUsers.push({
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          password: row.password,
+          profilePicture: row.profilePicture,
+          isOnline: Boolean(row.isOnline),
+          lastSeen: row.lastSeen,
+          createdAt: row.createdAt,
+        });
+      }
+
+      return blockedUsers;
+    } catch (error) {
+      console.error('Error getting blocked users:', error);
+      return [];
     }
   }
 
