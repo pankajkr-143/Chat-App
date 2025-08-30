@@ -12,6 +12,8 @@ export interface User {
   isOnline: boolean;
   lastSeen: string;
   createdAt: string;
+  isAdmin?: boolean;
+  isBlocked?: boolean;
 }
 
 export interface ChatMessage {
@@ -69,6 +71,33 @@ export interface Call {
   endTime?: string;
 }
 
+export interface Group {
+  id: number;
+  name: string;
+  description?: string;
+  avatar?: string;
+  createdBy: number;
+  createdAt: string;
+  isActive: boolean;
+}
+
+export interface GroupMember {
+  id: number;
+  groupId: number;
+  userId: number;
+  role: 'admin' | 'member';
+  joinedAt: string;
+}
+
+export interface GroupMessage {
+  id: number;
+  groupId: number;
+  senderId: number;
+  message: string;
+  timestamp: string;
+  isRead: boolean;
+}
+
 class DatabaseService {
   private database: SQLite.SQLiteDatabase | null = null;
 
@@ -105,6 +134,8 @@ class DatabaseService {
           let hasProfilePicture = false;
           let hasIsOnline = false;
           let hasLastSeen = false;
+          let hasIsAdmin = false;
+          let hasIsBlocked = false;
           
           for (let i = 0; i < result[0].rows.length; i++) {
             const col = result[0].rows.item(i);
@@ -112,9 +143,11 @@ class DatabaseService {
             if (col.name === 'profilePicture') hasProfilePicture = true;
             if (col.name === 'isOnline') hasIsOnline = true;
             if (col.name === 'lastSeen') hasLastSeen = true;
+            if (col.name === 'isAdmin') hasIsAdmin = true;
+            if (col.name === 'isBlocked') hasIsBlocked = true;
           }
           
-          needsMigration = !hasUsername || !hasProfilePicture || !hasIsOnline || !hasLastSeen;
+          needsMigration = !hasUsername || !hasProfilePicture || !hasIsOnline || !hasLastSeen || !hasIsAdmin || !hasIsBlocked;
         }
       } catch (error) {
         // Table doesn't exist, will be created fresh
@@ -150,6 +183,10 @@ class DatabaseService {
       await this.database.executeSql(`DROP TABLE IF EXISTS status_views`); // Add this line
       await this.database.executeSql(`DROP TABLE IF EXISTS calls`); // Add this line
       await this.database.executeSql(`DROP TABLE IF EXISTS blocked_users`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS notifications`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS groups`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS group_members`); // Add this line
+      await this.database.executeSql(`DROP TABLE IF EXISTS group_messages`); // Add this line
       
       // Create all tables with new schema
       await this.createAllTables();
@@ -174,7 +211,9 @@ class DatabaseService {
         profilePicture TEXT,
         isOnline BOOLEAN DEFAULT 0,
         lastSeen TEXT DEFAULT CURRENT_TIMESTAMP,
-        createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        isAdmin BOOLEAN DEFAULT 0,
+        isBlocked BOOLEAN DEFAULT 0
       )
     `);
 
@@ -278,6 +317,62 @@ class DatabaseService {
       )
     `);
 
+    // Create notifications table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('global', 'individual')),
+        targetUserId INTEGER,
+        isRead BOOLEAN DEFAULT 0,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (targetUserId) REFERENCES users (id)
+      )
+    `);
+
+    // Create groups table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        avatar TEXT,
+        createdBy INTEGER NOT NULL,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        isActive BOOLEAN DEFAULT 1,
+        FOREIGN KEY (createdBy) REFERENCES users (id)
+      )
+    `);
+
+    // Create group_members table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        groupId INTEGER NOT NULL,
+        userId INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'member')) DEFAULT 'member',
+        joinedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (groupId) REFERENCES groups (id),
+        FOREIGN KEY (userId) REFERENCES users (id),
+        UNIQUE(groupId, userId)
+      )
+    `);
+
+    // Create group_messages table
+    await this.database.executeSql(`
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        groupId INTEGER NOT NULL,
+        senderId INTEGER NOT NULL,
+        message TEXT NOT NULL,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        isRead BOOLEAN DEFAULT 0,
+        FOREIGN KEY (groupId) REFERENCES groups (id),
+        FOREIGN KEY (senderId) REFERENCES users (id)
+      )
+    `);
+
     console.log('All tables created successfully');
   }
 
@@ -287,7 +382,7 @@ class DatabaseService {
     try {
       const result = await this.database.executeSql(
         'INSERT INTO users (email, username, password, profilePicture, isOnline) VALUES (?, ?, ?, ?, ?)',
-        [email, username, password, profilePicture || null, 1]
+        [email, username, password, profilePicture || undefined, 1]
       );
 
       const userId = result[0].insertId;
@@ -296,11 +391,16 @@ class DatabaseService {
         email,
         username,
         password,
-        profilePicture,
+        profilePicture: profilePicture || undefined,
         isOnline: true,
         lastSeen: new Date().toISOString(),
         createdAt: new Date().toISOString(),
+        isAdmin: false,
+        isBlocked: false,
       };
+
+      // Create welcome notification for new user
+      await this.createWelcomeNotification(userId);
 
       return user;
     } catch (error) {
@@ -399,19 +499,20 @@ class DatabaseService {
     }
   }
 
-  async validateUser(email: string, password: string): Promise<User | null> {
+  async loginUser(emailOrUsername: string, password: string): Promise<User | null> {
     if (!this.database) throw new Error('Database not initialized');
 
     try {
+      // Try to find user by email or username
       const result = await this.database.executeSql(
-        'SELECT * FROM users WHERE email = ? AND password = ?',
-        [email, password]
+        'SELECT * FROM users WHERE (email = ? OR username = ?) AND password = ?',
+        [emailOrUsername, emailOrUsername, password]
       );
 
       if (result[0].rows.length > 0) {
         const row = result[0].rows.item(0);
         
-        // Update user online status
+        // Update user's online status
         await this.updateUserOnlineStatus(row.id, true);
         
         return {
@@ -421,14 +522,16 @@ class DatabaseService {
           password: row.password,
           profilePicture: row.profilePicture,
           isOnline: true,
-          lastSeen: new Date().toISOString(),
+          lastSeen: row.lastSeen,
           createdAt: row.createdAt,
+          isAdmin: Boolean(row.isAdmin),
+          isBlocked: Boolean(row.isBlocked),
         };
       }
 
       return null;
     } catch (error) {
-      console.error('Error validating user:', error);
+      console.error('Error during login:', error);
       throw error;
     }
   }
@@ -1133,6 +1236,8 @@ class DatabaseService {
           isOnline: Boolean(row.isOnline),
           lastSeen: row.lastSeen,
           createdAt: row.createdAt,
+          isAdmin: Boolean(row.isAdmin),
+          isBlocked: Boolean(row.isBlocked),
         });
       }
 
@@ -1140,6 +1245,200 @@ class DatabaseService {
     } catch (error) {
       console.error('Error getting blocked users:', error);
       return [];
+    }
+  }
+
+  // Admin methods
+  async createAdminUser(): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // Check if admin already exists
+      const existingAdmin = await this.database.executeSql(
+        'SELECT id FROM users WHERE email = ? OR username = ?',
+        ['admin@capp.com', 'Admin']
+      );
+
+      if (existingAdmin[0].rows.length === 0) {
+        // Create admin user with proper email
+        await this.database.executeSql(
+          'INSERT INTO users (email, username, password, isAdmin, isOnline) VALUES (?, ?, ?, ?, ?)',
+          ['admin@capp.com', 'Admin', 'Radhikamaa', 1, 1]
+        );
+        console.log('Admin user created successfully');
+      }
+    } catch (error) {
+      console.error('Error creating admin user:', error);
+    }
+  }
+
+  async isAdminUser(emailOrUsername: string, password: string): Promise<boolean> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'SELECT id FROM users WHERE (email = ? OR username = ?) AND password = ? AND isAdmin = 1',
+        [emailOrUsername, emailOrUsername, password]
+      );
+      return result[0].rows.length > 0;
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      return false;
+    }
+  }
+
+  async updateAdminCredentials(adminId: number, newUsername: string, newPassword: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE users SET username = ?, password = ? WHERE id = ? AND isAdmin = 1',
+        [newUsername, newPassword, adminId]
+      );
+    } catch (error) {
+      console.error('Error updating admin credentials:', error);
+      throw error;
+    }
+  }
+
+  // Notification methods
+  async createGlobalNotification(title: string, message: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'INSERT INTO notifications (title, message, type) VALUES (?, ?, ?)',
+        [title, message, 'global']
+      );
+    } catch (error) {
+      console.error('Error creating global notification:', error);
+      throw error;
+    }
+  }
+
+  async createIndividualNotification(title: string, message: string, targetUserId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'INSERT INTO notifications (title, message, type, targetUserId) VALUES (?, ?, ?, ?)',
+        [title, message, 'individual', targetUserId]
+      );
+    } catch (error) {
+      console.error('Error creating individual notification:', error);
+      throw error;
+    }
+  }
+
+  async getNotificationsForUser(userId: number): Promise<any[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT * FROM notifications 
+        WHERE type = 'global' OR (type = 'individual' AND targetUserId = ?)
+        ORDER BY createdAt DESC
+      `, [userId]);
+
+      const notifications: any[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        notifications.push(result[0].rows.item(i));
+      }
+
+      return notifications;
+    } catch (error) {
+      console.error('Error getting notifications:', error);
+      return [];
+    }
+  }
+
+  async getAllNotificationsWithDetails(): Promise<any[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT n.*, u.username as targetUsername, u.email as targetEmail
+        FROM notifications n
+        LEFT JOIN users u ON n.targetUserId = u.id
+        ORDER BY n.createdAt DESC
+      `);
+
+      const notifications: any[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        notifications.push({
+          id: row.id,
+          title: row.title,
+          message: row.message,
+          type: row.type,
+          targetUserId: row.targetUserId,
+          targetUsername: row.targetUsername,
+          targetEmail: row.targetEmail,
+          isRead: Boolean(row.isRead),
+          createdAt: row.createdAt,
+        });
+      }
+
+      return notifications;
+    } catch (error) {
+      console.error('Error getting all notifications with details:', error);
+      return [];
+    }
+  }
+
+  async markNotificationAsRead(notificationId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE notifications SET isRead = 1 WHERE id = ?',
+        [notificationId]
+      );
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  async deleteNotification(notificationId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'DELETE FROM notifications WHERE id = ?',
+        [notificationId]
+      );
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      throw error;
+    }
+  }
+
+  async updateNotification(notificationId: number, title: string, message: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE notifications SET title = ?, message = ? WHERE id = ?',
+        [title, message, notificationId]
+      );
+    } catch (error) {
+      console.error('Error updating notification:', error);
+      throw error;
+    }
+  }
+
+  async updateGroupName(groupId: number, newName: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE groups SET name = ? WHERE id = ?',
+        [newName, groupId]
+      );
+    } catch (error) {
+      console.error('Error updating group name:', error);
+      throw error;
     }
   }
 
@@ -1250,6 +1549,350 @@ class DatabaseService {
       return calls;
     } catch (error) {
       console.error('Error getting call history:', error);
+      return [];
+    }
+  }
+
+  // Admin user management methods
+  async deleteUser(userId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      // Delete user's data from all related tables
+      await this.database.executeSql('DELETE FROM messages WHERE senderId = ? OR receiverId = ?', [userId, userId]);
+      await this.database.executeSql('DELETE FROM friend_requests WHERE fromUserId = ? OR toUserId = ?', [userId, userId]);
+      await this.database.executeSql('DELETE FROM friendships WHERE userId1 = ? OR userId2 = ?', [userId, userId]);
+      await this.database.executeSql('DELETE FROM statuses WHERE userId = ?', [userId]);
+      await this.database.executeSql('DELETE FROM status_views WHERE viewerId = ?', [userId]);
+      await this.database.executeSql('DELETE FROM calls WHERE callerId = ? OR receiverId = ?', [userId, userId]);
+      await this.database.executeSql('DELETE FROM blocked_users WHERE userId = ? OR blockedUserId = ?', [userId, userId]);
+      await this.database.executeSql('DELETE FROM group_members WHERE userId = ?', [userId]);
+      await this.database.executeSql('DELETE FROM group_messages WHERE senderId = ?', [userId]);
+      
+      // Finally delete the user
+      await this.database.executeSql('DELETE FROM users WHERE id = ?', [userId]);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  async blockUserByAdmin(userId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE users SET isBlocked = 1 WHERE id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.error('Error blocking user by admin:', error);
+      throw error;
+    }
+  }
+
+  async unblockUserByAdmin(userId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE users SET isBlocked = 0 WHERE id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.error('Error unblocking user by admin:', error);
+      throw error;
+    }
+  }
+
+  async updateUserUsername(userId: number, newUsername: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE users SET username = ? WHERE id = ?',
+        [newUsername, userId]
+      );
+    } catch (error) {
+      console.error('Error updating username:', error);
+      throw error;
+    }
+  }
+
+  async updateUserPassword(userId: number, newPassword: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE users SET password = ? WHERE id = ?',
+        [newPassword, userId]
+      );
+    } catch (error) {
+      console.error('Error updating password:', error);
+      throw error;
+    }
+  }
+
+  async createWelcomeNotification(userId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'INSERT INTO notifications (title, message, type, targetUserId) VALUES (?, ?, ?, ?)',
+        ['Welcome to ChatApp!', 'Thank you for joining our community. Start chatting with friends and explore all the features!', 'individual', userId]
+      );
+    } catch (error) {
+      console.error('Error creating welcome notification:', error);
+    }
+  }
+
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT COUNT(*) as count FROM notifications 
+        WHERE (type = 'global' OR (type = 'individual' AND targetUserId = ?))
+        AND isRead = 0
+      `, [userId]);
+
+      return result[0].rows.item(0).count;
+    } catch (error) {
+      console.error('Error getting unread notification count:', error);
+      return 0;
+    }
+  }
+
+  // Group methods
+  async createGroup(name: string, description: string, createdBy: number, avatar?: string): Promise<Group> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'INSERT INTO groups (name, description, avatar, createdBy) VALUES (?, ?, ?, ?)',
+        [name, description, avatar || null, createdBy]
+      );
+
+      const groupId = result[0].insertId;
+      
+      // Add creator as admin member
+      await this.database.executeSql(
+        'INSERT INTO group_members (groupId, userId, role) VALUES (?, ?, ?)',
+        [groupId, createdBy, 'admin']
+      );
+
+      const group: Group = {
+        id: groupId,
+        name,
+        description,
+        avatar,
+        createdBy,
+        createdAt: new Date().toISOString(),
+        isActive: true,
+      };
+
+      return group;
+    } catch (error) {
+      console.error('Error creating group:', error);
+      throw error;
+    }
+  }
+
+  async getUserGroups(userId: number): Promise<(Group & { memberCount: number; lastMessage?: string; lastMessageTime?: string })[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT g.*, 
+               (SELECT COUNT(*) FROM group_members WHERE groupId = g.id) as memberCount,
+               (SELECT message FROM group_messages WHERE groupId = g.id ORDER BY timestamp DESC LIMIT 1) as lastMessage,
+               (SELECT timestamp FROM group_messages WHERE groupId = g.id ORDER BY timestamp DESC LIMIT 1) as lastMessageTime
+        FROM groups g
+        JOIN group_members gm ON g.id = gm.groupId
+        WHERE gm.userId = ? AND g.isActive = 1
+        ORDER BY g.createdAt DESC
+      `, [userId]);
+
+      const groups: (Group & { memberCount: number; lastMessage?: string; lastMessageTime?: string })[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        groups.push({
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          avatar: row.avatar,
+          createdBy: row.createdBy,
+          createdAt: row.createdAt,
+          isActive: Boolean(row.isActive),
+          memberCount: row.memberCount,
+          lastMessage: row.lastMessage,
+          lastMessageTime: row.lastMessageTime,
+        });
+      }
+
+      return groups;
+    } catch (error) {
+      console.error('Error getting user groups:', error);
+      return [];
+    }
+  }
+
+  async addMemberToGroup(groupId: number, userId: number, role: 'admin' | 'member' = 'member'): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)',
+        [groupId, userId, role]
+      );
+    } catch (error) {
+      console.error('Error adding member to group:', error);
+      throw error;
+    }
+  }
+
+  async removeMemberFromGroup(groupId: number, userId: number): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'DELETE FROM group_members WHERE groupId = ? AND userId = ?',
+        [groupId, userId]
+      );
+    } catch (error) {
+      console.error('Error removing member from group:', error);
+      throw error;
+    }
+  }
+
+  async getGroupMembers(groupId: number): Promise<(User & { role: string })[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT u.*, gm.role
+        FROM users u
+        JOIN group_members gm ON u.id = gm.userId
+        WHERE gm.groupId = ?
+        ORDER BY gm.role DESC, u.username
+      `, [groupId]);
+
+      const members: (User & { role: string })[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        members.push({
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          password: row.password,
+          profilePicture: row.profilePicture,
+          isOnline: Boolean(row.isOnline),
+          lastSeen: row.lastSeen,
+          createdAt: row.createdAt,
+          role: row.role,
+        });
+      }
+
+      return members;
+    } catch (error) {
+      console.error('Error getting group members:', error);
+      return [];
+    }
+  }
+
+  async saveGroupMessage(groupId: number, senderId: number, message: string): Promise<GroupMessage> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(
+        'INSERT INTO group_messages (groupId, senderId, message, timestamp) VALUES (?, ?, ?, ?)',
+        [groupId, senderId, message, new Date().toISOString()]
+      );
+
+      const messageId = result[0].insertId;
+      return {
+        id: messageId,
+        groupId,
+        senderId,
+        message,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+      };
+    } catch (error) {
+      console.error('Error saving group message:', error);
+      throw error;
+    }
+  }
+
+  async saveGroupCall(groupId: number, callerId: number, callType: 'voice' | 'video'): Promise<string> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const callId = `group_${groupId}_${Date.now()}`;
+      await this.database.executeSql(`
+        INSERT INTO calls (id, callerId, receiverId, type, status, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [callId, callerId, groupId, callType, 'outgoing', new Date().toISOString()]);
+
+      return callId;
+    } catch (error) {
+      console.error('Error saving group call:', error);
+      throw error;
+    }
+  }
+
+  async updateGroupCallStatus(callId: string, status: string): Promise<void> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      await this.database.executeSql(
+        'UPDATE calls SET status = ? WHERE id = ?',
+        [status, callId]
+      );
+    } catch (error) {
+      console.error('Error updating group call status:', error);
+      throw error;
+    }
+  }
+
+  async getGroupMessages(groupId: number): Promise<(GroupMessage & { sender: User })[]> {
+    if (!this.database) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.database.executeSql(`
+        SELECT gm.*, u.username, u.profilePicture
+        FROM group_messages gm
+        JOIN users u ON gm.senderId = u.id
+        WHERE gm.groupId = ?
+        ORDER BY gm.timestamp ASC
+      `, [groupId]);
+
+      const messages: (GroupMessage & { sender: User })[] = [];
+      for (let i = 0; i < result[0].rows.length; i++) {
+        const row = result[0].rows.item(i);
+        messages.push({
+          id: row.id,
+          groupId: row.groupId,
+          senderId: row.senderId,
+          message: row.message,
+          timestamp: row.timestamp,
+          isRead: Boolean(row.isRead),
+          sender: {
+            id: row.senderId,
+            email: '', // Not needed for display
+            username: row.username,
+            password: '', // Not needed for display
+            profilePicture: row.profilePicture,
+            isOnline: false, // Not needed for display
+            lastSeen: '', // Not needed for display
+            createdAt: '', // Not needed for display
+          },
+        });
+      }
+
+      return messages;
+    } catch (error) {
+      console.error('Error getting group messages:', error);
       return [];
     }
   }

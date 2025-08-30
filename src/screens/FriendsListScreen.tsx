@@ -25,13 +25,15 @@ interface FriendsListScreenProps {
   onFriendSelect: (friend: User) => void;
   searchQuery?: string;
   onUnreadCountChange?: () => void;
+  compact?: boolean;
 }
 
 const FriendsListScreen: React.FC<FriendsListScreenProps> = ({ 
   currentUser, 
   onFriendSelect, 
   searchQuery = '', 
-  onUnreadCountChange
+  onUnreadCountChange,
+  compact = false
 }) => {
   const [friends, setFriends] = useState<FriendWithLastMessage[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<FriendWithLastMessage[]>([]);
@@ -232,23 +234,24 @@ const FriendsListScreen: React.FC<FriendsListScreenProps> = ({
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
+    <View style={[styles.container, compact && styles.compactContainer]}>
+      <View style={[styles.content, compact && styles.compactContent]}>
         {filteredFriends.length > 0 ? (
           <FlatList
             ref={flatListRef}
             data={filteredFriends}
             renderItem={renderFriendItem}
             keyExtractor={(item) => item.id.toString()}
-            style={styles.friendsList}
-            contentContainerStyle={styles.friendsContent}
+            style={[styles.friendsList, compact && styles.compactFriendsList]}
+            contentContainerStyle={[styles.friendsContent, compact && styles.compactFriendsContent]}
             showsVerticalScrollIndicator={false}
             refreshing={refreshing}
             onRefresh={onRefresh}
             onScrollBeginDrag={() => Keyboard.dismiss()}
+            scrollEnabled={!compact}
           />
         ) : (
-          renderEmptyState()
+          !compact && renderEmptyState()
         )}
       </View>
     </View>
@@ -260,15 +263,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F0F0F0',
   },
+  compactContainer: {
+    backgroundColor: 'transparent',
+  },
   content: {
     flex: 1,
+  },
+  compactContent: {
+    paddingHorizontal: 0,
   },
   friendsList: {
     flex: 1,
   },
+  compactFriendsList: {
+    maxHeight: 200,
+  },
   friendsContent: {
     padding: 20,
     paddingTop: 10,
+  },
+  compactFriendsContent: {
+    padding: 0,
+    paddingHorizontal: 20,
   },
   friendCard: {
     backgroundColor: '#ffffff',

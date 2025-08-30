@@ -26,6 +26,8 @@ import CallScreen from '../screens/CallScreen';
 import DatabaseService, { User } from '../database/DatabaseService';
 import CallService, { CallSession } from '../services/CallService';
 import FriendOptionsModal from './FriendOptionsModal';
+import UserNotificationBanner from './UserNotificationBanner';
+import GroupChatScreen from '../screens/GroupChatScreen';
 
 interface ChatInterfaceProps {
   currentUser: User;
@@ -33,14 +35,17 @@ interface ChatInterfaceProps {
 }
 
 type ActiveTab = 'chat' | 'find' | 'status' | 'call';
-type ChatView = 'friends-list' | 'individual-chat';
+type ChatView = 'friends-list' | 'individual-chat' | 'group-chat';
+type ChatSection = 'friends' | 'groups';
 type MenuScreen = 'profile' | 'groups' | 'settings' | 'about' | 'requests' | null;
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) => {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
   const [chatView, setChatView] = useState<ChatView>('friends-list');
+  const [chatSection, setChatSection] = useState<ChatSection>('friends');
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [menuScreen, setMenuScreen] = useState<MenuScreen>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -111,9 +116,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     setChatView('individual-chat');
   };
 
+  const handleGroupSelect = (group: any) => {
+    setSelectedGroup(group);
+    setChatView('group-chat');
+  };
+
   const handleBackToChat = async () => {
     setChatView('friends-list');
     setSelectedFriend(null);
+    setSelectedGroup(null);
     // Refresh unread count when returning from chat
     await loadUnreadCount();
   };
@@ -264,6 +275,50 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
     }
   };
 
+  const renderChatList = () => {
+    return (
+      <View style={styles.chatContainer}>
+        {/* Chat Section Tabs */}
+        <View style={styles.chatSectionTabs}>
+          <TouchableOpacity
+            style={[styles.chatSectionTab, chatSection === 'friends' && styles.activeChatSectionTab]}
+            onPress={() => setChatSection('friends')}
+          >
+            <Text style={[styles.chatSectionTabText, chatSection === 'friends' && styles.activeChatSectionTabText]}>
+              Friends
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.chatSectionTab, chatSection === 'groups' && styles.activeChatSectionTab]}
+            onPress={() => setChatSection('groups')}
+          >
+            <Text style={[styles.chatSectionTabText, chatSection === 'groups' && styles.activeChatSectionTabText]}>
+              Groups
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Content based on section */}
+        {chatSection === 'friends' && (
+          <FriendsListScreen
+            currentUser={currentUser}
+            searchQuery={searchQuery}
+            onFriendSelect={handleFriendSelect}
+            onUnreadCountChange={loadUnreadCount}
+          />
+        )}
+        {chatSection === 'groups' && (
+          <GroupsScreen
+            currentUser={currentUser}
+            onBack={() => {}} // No back needed here
+            showCreateButton={true}
+            onGroupSelect={handleGroupSelect}
+          />
+        )}
+      </View>
+    );
+  };
+
   const renderCurrentScreen = () => {
     if (menuScreen) {
       return renderMenuScreen();
@@ -280,15 +335,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
               onMessageSent={loadUnreadCount}
             />
           );
-        } else {
+        } else if (chatView === 'group-chat' && selectedGroup) {
           return (
-            <FriendsListScreen
+            <GroupChatScreen
               currentUser={currentUser}
-              searchQuery={searchQuery}
-              onFriendSelect={handleFriendSelect}
-              onUnreadCountChange={loadUnreadCount}
+              group={selectedGroup}
+              onBack={handleBackToChat}
             />
           );
+        } else {
+          return renderChatList();
         }
       case 'find':
         return <FindFriendsScreen currentUser={currentUser} />;
@@ -297,7 +353,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
       case 'call':
         return (
           <CallsScreen 
-            currentUser={currentUser} 
+            currentUser={currentUser}
             onStartCall={handleStartCall}
           />
         );
@@ -324,6 +380,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, onLogout }) 
       />
 
       <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        {/* User Notification Banner */}
+        <UserNotificationBanner currentUser={currentUser} />
+
         {/* Active Call Screen - Full Screen */}
         {activeCall && (
           <View style={styles.fullScreenCall}>
@@ -553,6 +612,48 @@ const styles = StyleSheet.create({
   friendsScreenContainer: {
     flex: 1,
     backgroundColor: '#F0F0F0',
+  },
+  chatContainer: {
+    flex: 1,
+  },
+  chatSectionTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  chatSectionTab: {
+    flex: 1,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  activeChatSectionTab: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#25D366',
+  },
+  chatSectionTabText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  activeChatSectionTabText: {
+    color: '#25D366',
+    fontWeight: '600',
+  },
+  allContent: {
+    flex: 1,
+  },
+  sectionHeader: {
+    backgroundColor: '#F8F8F8',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
   },
 });
 

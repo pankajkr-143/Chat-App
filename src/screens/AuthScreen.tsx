@@ -15,9 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 interface AuthScreenProps {
   onLogin: (email: string, password: string) => void;
   onSignup: (email: string, username: string, password: string, profilePicture?: string) => void;
+  onAdminLogin: (email: string, password: string) => void;
 }
 
-const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
+const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup, onAdminLogin }) => {
   const insets = useSafeAreaInsets();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -69,14 +70,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
     return password.length >= 6;
   };
 
-  const handleAuth = () => {
-    if (!validateEmail(email)) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+  const handleAuth = async () => {
+    if (!validateEmail(email) && !validateUsername(email)) {
+      Alert.alert('Invalid Input', 'Please enter a valid email address or username.');
       return;
     }
 
     if (!validatePassword(password)) {
       Alert.alert('Invalid Password', 'Password must be at least 6 characters long.');
+      return;
+    }
+
+    // Check if this is admin login
+    if ((email === 'Admin' || email === 'admin@capp.com') && password === 'Radhikamaa') {
+      onAdminLogin(email, password);
       return;
     }
 
@@ -141,7 +148,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
           {isLogin ? 'Welcome Back' : 'Create Account'}
         </Text>
         <Text style={styles.headerSubtitle}>
-          {isLogin ? 'Sign in to continue' : 'Join the conversation'}
+          {isLogin ? 'Sign in with email or username' : 'Join the conversation'}
         </Text>
       </View>
 
@@ -174,7 +181,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onSignup }) => {
               <Text style={styles.inputIcon}>📧</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Email"
+                placeholder="Email or Username"
                 placeholderTextColor="#999"
                 value={email}
                 onChangeText={setEmail}

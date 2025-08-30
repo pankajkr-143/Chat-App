@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppState as RNAppState, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,6 +8,7 @@ import SplashScreen from './src/screens/SplashScreen';
 import TermsScreen from './src/screens/TermsScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import ChatInterface from './src/components/ChatInterface';
+import AdminDashboard from './src/screens/AdminDashboard';
 import NotificationPermissionRequest from './src/components/NotificationPermissionRequest';
 import NotificationHandler from './src/components/NotificationHandler';
 import DatabaseService, { User } from './src/database/DatabaseService';
@@ -17,8 +19,11 @@ type AppState = 'splash' | 'terms' | 'auth' | 'main';
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showNotificationPermission, setShowNotificationPermission] = useState(false);
   const [notificationPermissionGranted, setNotificationPermissionGranted] = useState(false);
+  const [hasSeenSplash, setHasSeenSplash] = useState(false);
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
 
   useEffect(() => {
     initializeApp();
@@ -45,6 +50,9 @@ const App: React.FC = () => {
     try {
       await DatabaseService.initDatabase();
       
+      // Create admin user if it doesn't exist
+      await DatabaseService.createAdminUser();
+      
       // Initialize notification service
       await NotificationService.getInstance().initialize();
       
@@ -54,7 +62,7 @@ const App: React.FC = () => {
       
       console.log('App initialized successfully');
     } catch (error) {
-      console.error('Error initializing app:', error);
+      console.error('Failed to initialize app:', error);
     }
   };
 
@@ -85,28 +93,50 @@ const App: React.FC = () => {
 
   const handleLogin = async (email: string, password: string) => {
     try {
-      const user = await DatabaseService.validateUser(email, password);
+      const user = await DatabaseService.loginUser(email, password);
       if (user) {
         setCurrentUser(user);
+        setIsAdmin(false);
         setAppState('main');
         
-        // Check if this user has already been asked for notification permission
-        const hasBeenAsked = await checkUserNotificationPermissionStatus(user.id);
-        
-        // Show notification permission request only if:
-        // 1. Permission is not granted AND
-        // 2. User hasn't been asked before
-        if (!notificationPermissionGranted && !hasBeenAsked) {
-          setTimeout(() => {
-            setShowNotificationPermission(true);
-          }, 1000); // Show after 1 second
-        }
+        // Check for unread notifications after successful login
+        setTimeout(async () => {
+          try {
+            const unreadCount = await DatabaseService.getUnreadNotificationCount(user.id);
+            if (unreadCount > 0) {
+              console.log(`User has ${unreadCount} unread notifications`);
+              // Notifications will be shown by UserNotificationBanner in ChatInterface
+            }
+          } catch (error) {
+            console.error('Error checking notifications:', error);
+          }
+        }, 1000); // Check after 1 second
       } else {
-        Alert.alert('Login Failed', 'Invalid email or password. Please try again.');
+        Alert.alert('Login Failed', 'Invalid email/username or password');
       }
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Error', 'Login failed. Please try again.');
+    }
+  };
+
+  const handleAdminLogin = async (email: string, password: string) => {
+    try {
+      const isAdminUser = await DatabaseService.isAdminUser(email, password);
+      if (isAdminUser) {
+        // Get admin user details
+        const adminUser = await DatabaseService.getUserByEmail('admin@capp.com');
+        if (adminUser) {
+          setCurrentUser(adminUser);
+          setIsAdmin(true);
+          setAppState('main');
+        }
+      } else {
+        Alert.alert('Admin Login Failed', 'Invalid admin credentials');
+      }
+    } catch (error) {
+      console.error('Admin login error:', error);
+      Alert.alert('Error', 'Admin login failed. Please try again.');
     }
   };
 
@@ -130,6 +160,20 @@ const App: React.FC = () => {
       setCurrentUser(user);
       setAppState('main');
       
+      // Show notifications after successful signup
+      setTimeout(async () => {
+        try {
+          const notifications = await DatabaseService.getNotificationsForUser(user.id);
+          const unreadNotifications = notifications.filter(n => !n.isRead);
+          if (unreadNotifications.length > 0) {
+            // Notifications will be shown by UserNotificationBanner in ChatInterface
+            console.log(`New user has ${unreadNotifications.length} unread notifications`);
+          }
+        } catch (error) {
+          console.error('Error checking notifications:', error);
+        }
+      }, 1000); // Check after 1 second
+      
       // For new users, always show notification permission request if not granted
       if (!notificationPermissionGranted) {
         setTimeout(() => {
@@ -146,6 +190,17 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setIsAdmin(false);
+    setAppState('auth');
+  };
+
+  const handleSplashComplete = () => {
+    setHasSeenSplash(true);
+    setAppState('terms');
+  };
+
+  const handleAcceptTerms = () => {
+    setHasAcceptedTerms(true);
     setAppState('auth');
   };
 
@@ -196,28 +251,39 @@ const App: React.FC = () => {
   };
 
   const renderCurrentScreen = () => {
-    switch (appState) {
-      case 'splash':
-        return <SplashScreen onFinish={handleSplashFinish} />;
-      case 'terms':
-        return <TermsScreen onAgree={handleTermsAgree} />;
-      case 'auth':
-        return (
-          <AuthScreen
-            onLogin={handleLogin}
-            onSignup={handleSignup}
-          />
-        );
-      case 'main':
-        return currentUser ? (
-          <ChatInterface
-            currentUser={currentUser}
-            onLogout={handleLogout}
-          />
-        ) : null;
-      default:
-        return null;
+    if (currentUser && isAdmin) {
+      return (
+        <AdminDashboard
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      );
     }
+
+    if (currentUser && !isAdmin) {
+      return (
+        <ChatInterface
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+      );
+    }
+
+    if (appState === 'auth') {
+  return (
+        <AuthScreen
+          onLogin={handleLogin}
+          onSignup={handleSignup}
+          onAdminLogin={handleAdminLogin}
+        />
+      );
+    }
+
+    if (appState === 'terms') {
+      return <TermsScreen onAgree={handleAcceptTerms} />;
+    }
+
+    return <SplashScreen onFinish={handleSplashComplete} />;
   };
 
   return (
@@ -233,11 +299,13 @@ const App: React.FC = () => {
         onIncomingCall={handleIncomingCall}
       />
       
-      <NotificationPermissionRequest
-        visible={showNotificationPermission}
-        onPermissionGranted={handleNotificationPermissionGranted}
-        onPermissionDenied={handleNotificationPermissionDenied}
-      />
+      {showNotificationPermission && (
+        <NotificationPermissionRequest
+          visible={showNotificationPermission}
+          onPermissionGranted={handleNotificationPermissionGranted}
+          onPermissionDenied={handleNotificationPermissionDenied}
+        />
+      )}
     </SafeAreaProvider>
   );
 };

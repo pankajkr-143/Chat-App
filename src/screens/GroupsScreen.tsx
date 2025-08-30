@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,272 +7,422 @@ import {
   FlatList,
   Alert,
   TextInput,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
-import { User } from '../database/DatabaseService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DatabaseService, { User } from '../database/DatabaseService';
 
 interface Group {
-  id: string;
+  id: number;
   name: string;
-  avatar: string;
-  memberCount: number;
-  lastMessage: string;
-  lastMessageTime: string;
-  isAdmin: boolean;
+  description?: string;
+  avatar?: string;
+  createdBy: number;
+  createdAt: string;
   isActive: boolean;
+  memberCount: number;
+  lastMessage?: string;
+  lastMessageTime?: string;
+}
+
+interface GroupMember {
+  id: number;
+  groupId: number;
+  userId: number;
+  role: 'admin' | 'member';
+  joinedAt: string;
+  user: User;
+}
+
+interface GroupMemberWithUser extends User {
+  role: string;
 }
 
 interface GroupsScreenProps {
   currentUser: User;
   onBack: () => void;
+  showCreateButton?: boolean;
+  compact?: boolean;
+  onGroupSelect?: (group: Group) => void; // Added for navigation
 }
 
-const GroupsScreen: React.FC<GroupsScreenProps> = ({ currentUser, onBack }) => {
-  const [groups, setGroups] = useState<Group[]>([
-    {
-      id: '1',
-      name: 'Work Team',
-      avatar: '💼',
-      memberCount: 8,
-      lastMessage: 'Meeting at 3 PM today',
-      lastMessageTime: '2 hours ago',
-      isAdmin: true,
-      isActive: true,
-    },
-    {
-      id: '2',
-      name: 'Family Group',
-      avatar: '👨‍👩‍👧‍👦',
-      memberCount: 12,
-      lastMessage: 'Dinner plans for Sunday',
-      lastMessageTime: '1 day ago',
-      isAdmin: false,
-      isActive: true,
-    },
-    {
-      id: '3',
-      name: 'Study Group',
-      avatar: '📚',
-      memberCount: 5,
-      lastMessage: 'Assignment due tomorrow',
-      lastMessageTime: '3 hours ago',
-      isAdmin: true,
-      isActive: true,
-    },
-  ]);
+const GroupsScreen: React.FC<GroupsScreenProps> = ({ 
+  currentUser, 
+  onBack, 
+  showCreateButton = false,
+  compact = false,
+  onGroupSelect // Destructure new prop
+}) => {
+  const insets = useSafeAreaInsets();
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showGroupDetailsModal, setShowGroupDetailsModal] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupMemberWithUser[]>([]);
+  const [groupName, setGroupName] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
 
-  const handleCreateGroup = () => {
-    Alert.prompt(
-      'Create New Group',
-      'Enter group name:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Create',
-          onPress: (groupName?: string) => {
-            if (groupName && groupName.trim()) {
-              const newGroup: Group = {
-                id: Date.now().toString(),
-                name: groupName.trim(),
-                avatar: getRandomGroupAvatar(),
-                memberCount: 1,
-                lastMessage: 'Group created',
-                lastMessageTime: 'Just now',
-                isAdmin: true,
-                isActive: true,
-              };
-              setGroups([newGroup, ...groups]);
-              Alert.alert('Success', `Group "${groupName.trim()}" created successfully!`);
-            }
-          }
-        }
-      ],
-      'plain-text',
-      '',
-      'Enter group name...'
-    );
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
+  const loadGroups = async () => {
+    try {
+      setLoading(true);
+      const userGroups = await DatabaseService.getUserGroups(currentUser.id);
+      setGroups(userGroups);
+    } catch (error) {
+      console.error('Error loading groups:', error);
+      Alert.alert('Error', 'Failed to load groups');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleJoinGroup = () => {
-    Alert.prompt(
-      'Join Group',
-      'Enter group invite code:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Join',
-          onPress: (inviteCode?: string) => {
-            if (inviteCode && inviteCode.trim()) {
-              // In a real app, you would validate the invite code
-              Alert.alert('Success', 'You have joined the group successfully!');
-            }
-          }
-        }
-      ],
-      'plain-text',
-      '',
-      'Enter invite code...'
-    );
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadGroups();
+    setRefreshing(false);
   };
 
-  const handleGroupPress = (group: Group) => {
-    Alert.alert(
-      group.name,
-      `Members: ${group.memberCount}\nLast message: ${group.lastMessage}`,
-      [
-        { text: 'View Group', onPress: () => handleViewGroup(group) },
-        { text: 'Group Info', onPress: () => handleGroupInfo(group) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
-  const handleViewGroup = (group: Group) => {
-    Alert.alert('View Group', `Opening ${group.name} chat...`);
-  };
-
-  const handleGroupInfo = (group: Group) => {
-    Alert.alert(
-      'Group Info',
-      `Name: ${group.name}\nMembers: ${group.memberCount}\nRole: ${group.isAdmin ? 'Admin' : 'Member'}\nStatus: ${group.isActive ? 'Active' : 'Inactive'}`,
-      [
-        { text: 'Edit Group', onPress: () => handleEditGroup(group) },
-        { text: 'Leave Group', style: 'destructive', onPress: () => handleLeaveGroup(group) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
-  const handleEditGroup = (group: Group) => {
-    if (!group.isAdmin) {
-      Alert.alert('Permission Denied', 'Only admins can edit group settings.');
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      Alert.alert('Error', 'Please enter a group name');
       return;
     }
 
-    Alert.prompt(
-      'Edit Group',
-      'Enter new group name:',
+    try {
+      await DatabaseService.createGroup(
+        groupName.trim(),
+        groupDescription.trim(),
+        currentUser.id,
+        getRandomGroupAvatar()
+      );
+      
+      Alert.alert('Success', `Group "${groupName.trim()}" created successfully!`);
+      setShowCreateModal(false);
+      setGroupName('');
+      setGroupDescription('');
+      loadGroups(); // Refresh the list
+    } catch (error) {
+      console.error('Error creating group:', error);
+      Alert.alert('Error', 'Failed to create group');
+    }
+  };
+
+  const handleGroupPress = async (group: Group) => {
+    // Navigate to group chat instead of showing details modal
+    if (onGroupSelect) {
+      onGroupSelect(group);
+    }
+  };
+
+  const handleRemoveMember = async (member: GroupMemberWithUser) => {
+    if (!selectedGroup) return;
+
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${member.username} from the group?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Save',
-          onPress: (newName?: string) => {
-            if (newName && newName.trim()) {
-              setGroups(groups.map(g => 
-                g.id === group.id ? { ...g, name: newName.trim() } : g
-              ));
-              Alert.alert('Success', 'Group name updated successfully!');
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await DatabaseService.removeMemberFromGroup(selectedGroup.id, member.id);
+              Alert.alert('Success', `${member.username} removed from group`);
+              // Refresh group members
+              const members = await DatabaseService.getGroupMembers(selectedGroup.id);
+              setGroupMembers(members);
+              // Refresh groups list
+              loadGroups();
+            } catch (error) {
+              console.error('Error removing member:', error);
+              Alert.alert('Error', 'Failed to remove member');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAddMember = async () => {
+    if (!selectedGroup) return;
+
+    Alert.prompt(
+      'Add Member',
+      'Enter username to add:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Add',
+          onPress: async (username?: string) => {
+            if (username && username.trim()) {
+              try {
+                const user = await DatabaseService.getUserByUsername(username.trim());
+                if (!user) {
+                  Alert.alert('Error', 'User not found');
+                  return;
+                }
+
+                // Check if user is already a member
+                const isAlreadyMember = groupMembers.some(m => m.id === user.id);
+                if (isAlreadyMember) {
+                  Alert.alert('Error', 'User is already a member of this group');
+                  return;
+                }
+
+                await DatabaseService.addMemberToGroup(selectedGroup.id, user.id);
+                Alert.alert('Success', `${user.username} added to group`);
+                
+                // Refresh group members
+                const members = await DatabaseService.getGroupMembers(selectedGroup.id);
+                setGroupMembers(members);
+                // Refresh groups list
+                loadGroups();
+              } catch (error) {
+                console.error('Error adding member:', error);
+                Alert.alert('Error', 'Failed to add member');
+              }
             }
           }
         }
       ],
       'plain-text',
-      group.name,
-      'Enter new name...'
+      '',
+      'Enter username...'
     );
   };
 
-  const handleLeaveGroup = (group: Group) => {
-    Alert.alert(
-      'Leave Group',
-      `Are you sure you want to leave "${group.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Leave', 
-          style: 'destructive',
-          onPress: () => {
-            setGroups(groups.filter(g => g.id !== group.id));
-            Alert.alert('Left Group', `You have left "${group.name}"`);
-          }
-        }
-      ]
-    );
-  };
-
-  const getRandomGroupAvatar = (): string => {
-    const avatars = ['💼', '👨‍👩‍👧‍👦', '📚', '🎮', '🏠', '🎵', '🏃‍♂️', '🍕', '🌍', '🎨'];
+  const getRandomGroupAvatar = () => {
+    const avatars = ['💼', '👨‍👩‍👧‍👦', '📚', '🎮', '🏠', '🎵', '🎨', '⚽', '🍕', '🚗'];
     return avatars[Math.floor(Math.random() * avatars.length)];
   };
 
   const renderGroupItem = ({ item }: { item: Group }) => (
     <TouchableOpacity
-      style={styles.groupItem}
+      style={styles.groupCard}
       onPress={() => handleGroupPress(item)}
-      activeOpacity={0.7}
     >
-      <View style={styles.groupAvatar}>
-        <Text style={styles.groupAvatarEmoji}>{item.avatar}</Text>
-        {item.isAdmin && (
-          <View style={styles.adminBadge}>
-            <Text style={styles.adminBadgeText}>👑</Text>
-          </View>
-        )}
-      </View>
-      
       <View style={styles.groupInfo}>
-        <View style={styles.groupHeader}>
-          <Text style={styles.groupName}>{item.name}</Text>
-          <Text style={styles.groupTime}>{item.lastMessageTime}</Text>
+        <View style={styles.groupAvatarContainer}>
+          <View style={styles.groupAvatar}>
+            <Text style={styles.avatarText}>{item.avatar || '👥'}</Text>
+          </View>
         </View>
-        
         <View style={styles.groupDetails}>
-          <Text style={styles.groupMembers}>{item.memberCount} members</Text>
-          <Text style={styles.groupLastMessage} numberOfLines={1}>
-            {item.lastMessage}
-          </Text>
+          <View style={styles.groupHeader}>
+            <Text style={styles.groupName}>{item.name}</Text>
+            <Text style={styles.groupMembers}>{item.memberCount} members</Text>
+          </View>
+          <View style={styles.lastMessageContainer}>
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.lastMessage || 'No messages yet'}
+            </Text>
+            {item.lastMessageTime && (
+              <Text style={styles.lastMessageTime}>
+                {new Date(item.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            )}
+          </View>
         </View>
       </View>
+      {item.createdBy === currentUser.id && (
+        <View style={styles.adminBadge}>
+          <Text style={styles.adminBadgeText}>Admin</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateIcon}>👥</Text>
-      <Text style={styles.emptyStateTitle}>No Groups Yet</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        Create a group or join existing ones to start group conversations
-      </Text>
-      <View style={styles.emptyStateActions}>
-        <TouchableOpacity style={styles.createGroupButton} onPress={handleCreateGroup}>
-          <Text style={styles.createGroupButtonText}>Create Group</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.joinGroupButton} onPress={handleJoinGroup}>
-          <Text style={styles.joinGroupButtonText}>Join Group</Text>
-        </TouchableOpacity>
+  const renderGroupMember = ({ item }: { item: GroupMemberWithUser }) => (
+    <View style={styles.memberItem}>
+      <View style={styles.memberInfo}>
+        <View style={styles.memberAvatar}>
+          <Text style={styles.memberAvatarText}>
+            {item.profilePicture ? '👤' : item.username.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <View style={styles.memberDetails}>
+          <Text style={styles.memberName}>{item.username}</Text>
+          <Text style={styles.memberRole}>{item.role}</Text>
+        </View>
       </View>
+      {selectedGroup?.createdBy === currentUser.id && item.id !== currentUser.id && (
+        <TouchableOpacity
+          style={styles.removeButton}
+          onPress={() => handleRemoveMember(item)}
+        >
+          <Text style={styles.removeButtonText}>Remove</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
-  return (
-    <View style={styles.container}>
-      {/* Action Buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleCreateGroup}>
-          <Text style={styles.actionButtonIcon}>➕</Text>
-          <Text style={styles.actionButtonText}>Create Group</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton} onPress={handleJoinGroup}>
-          <Text style={styles.actionButtonIcon}>🔗</Text>
-          <Text style={styles.actionButtonText}>Join Group</Text>
-        </TouchableOpacity>
-      </View>
+  const renderEmptyState = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color="#25D366" />
+          <Text style={styles.emptyStateTitle}>Loading groups...</Text>
+        </View>
+      );
+    }
 
-      {/* Groups List */}
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyStateIcon}>👥</Text>
+        <Text style={styles.emptyStateTitle}>No Groups Yet</Text>
+        <Text style={styles.emptyStateSubtitle}>
+          {showCreateButton 
+            ? 'Create your first group to start chatting with multiple people!'
+            : 'You haven\'t joined any groups yet.'
+          }
+        </Text>
+        {showCreateButton && (
+          <TouchableOpacity
+            style={styles.createFirstButton}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Text style={styles.createFirstButtonText}>Create Group</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {!compact && (
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Groups</Text>
+          <View style={styles.headerActions}>
+            {showCreateButton && (
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={() => setShowCreateModal(true)}
+              >
+                <Text style={styles.headerCreateButtonText}>+</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
       <View style={styles.content}>
-        {groups.length === 0 ? (
-          renderEmptyState()
-        ) : (
+        {groups.length > 0 ? (
           <FlatList
             data={groups}
             renderItem={renderGroupItem}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.id.toString()}
             style={styles.groupsList}
             contentContainerStyle={styles.groupsContent}
             showsVerticalScrollIndicator={false}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
           />
+        ) : (
+          renderEmptyState()
         )}
       </View>
+
+      {/* Create Group Modal */}
+      <Modal visible={showCreateModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Create New Group</Text>
+            
+            <TextInput
+              style={styles.input}
+              placeholder="Group Name"
+              value={groupName}
+              onChangeText={setGroupName}
+            />
+            
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Group Description (optional)"
+              value={groupDescription}
+              onChangeText={setGroupDescription}
+              multiline
+              numberOfLines={3}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setShowCreateModal(false);
+                  setGroupName('');
+                  setGroupDescription('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.createButton]}
+                onPress={handleCreateGroup}
+              >
+                <Text style={styles.createButtonText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Group Details Modal */}
+      <Modal visible={showGroupDetailsModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, styles.groupDetailsModal]}>
+            <View style={styles.groupDetailsHeader}>
+              <Text style={styles.groupDetailsTitle}>{selectedGroup?.name}</Text>
+              <Text style={styles.groupDetailsSubtitle}>
+                {selectedGroup?.memberCount} members • Created by you
+              </Text>
+            </View>
+
+            <View style={styles.membersSection}>
+              <View style={styles.membersHeader}>
+                <Text style={styles.membersTitle}>Members</Text>
+                {selectedGroup?.createdBy === currentUser.id && (
+                  <TouchableOpacity
+                    style={styles.addMemberButton}
+                    onPress={handleAddMember}
+                  >
+                    <Text style={styles.addMemberButtonText}>+ Add</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <FlatList
+                data={groupMembers}
+                renderItem={renderGroupMember}
+                keyExtractor={(item) => item.id.toString()}
+                style={styles.membersList}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setShowGroupDetailsModal(false);
+                setSelectedGroup(null);
+                setGroupMembers([]);
+              }}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -282,96 +432,93 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F0F0F0',
   },
-  actionButtons: {
+  header: {
+    backgroundColor: '#075E54',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     flexDirection: 'row',
-    padding: 20,
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    backgroundColor: '#25D366',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#25D366',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
-  actionButtonIcon: {
-    fontSize: 16,
-    marginRight: 8,
+  backButton: {
+    paddingHorizontal: 10,
   },
-  actionButtonText: {
+  backButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  createButton: {
+    backgroundColor: '#25D366',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCreateButtonText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   content: {
     flex: 1,
+    padding: 20,
   },
   groupsList: {
-    flex: 1,
+    // No specific styles needed here, FlatList handles its own
   },
   groupsContent: {
-    padding: 20,
-    paddingTop: 0,
+    paddingBottom: 20, // Add some padding at the bottom for the modal
   },
-  groupItem: {
+  groupCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  groupAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  groupInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  groupAvatarContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    borderWidth: 2,
-    borderColor: '#25D366',
-    position: 'relative',
+    marginRight: 15,
   },
-  groupAvatarEmoji: {
-    fontSize: 30,
-  },
-  adminBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#FFD700',
+  groupAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
   },
-  adminBadgeText: {
-    fontSize: 10,
+  avatarText: {
+    fontSize: 24,
   },
-  groupInfo: {
+  groupDetails: {
     flex: 1,
   },
   groupHeader: {
@@ -381,92 +528,231 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   groupName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#1A1A1A',
   },
-  groupTime: {
+  groupMembers: {
+    fontSize: 14,
+    color: '#666',
+  },
+  lastMessageContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  lastMessage: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+  lastMessageTime: {
     fontSize: 12,
     color: '#999',
+    marginLeft: 10,
   },
-  groupDetails: {
+  adminBadge: {
+    backgroundColor: '#25D366',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  adminBadgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  memberItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  memberInfo: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  groupMembers: {
-    fontSize: 14,
-    color: '#25D366',
-    fontWeight: '500',
-    marginRight: 12,
+  memberAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
   },
-  groupLastMessage: {
-    fontSize: 14,
-    color: '#666',
+  memberAvatarText: {
+    fontSize: 16,
+  },
+  memberDetails: {
     flex: 1,
+  },
+  memberName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  memberRole: {
+    fontSize: 12,
+    color: '#666',
+  },
+  removeButton: {
+    backgroundColor: '#FF4444',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  removeButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingHorizontal: 40,
   },
   emptyStateIcon: {
-    fontSize: 60,
+    fontSize: 64,
     marginBottom: 20,
   },
   emptyStateTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 10,
   },
   emptyStateSubtitle: {
     fontSize: 16,
-    color: '#999',
+    color: '#666',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 24,
     marginBottom: 30,
-    paddingHorizontal: 20,
   },
-  emptyStateActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  createGroupButton: {
+  createFirstButton: {
     backgroundColor: '#25D366',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    shadowColor: '#25D366',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
   },
-  createGroupButtonText: {
+  createFirstButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
   },
-  joinGroupButton: {
-    backgroundColor: '#128C7E',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    shadowColor: '#128C7E',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  joinGroupButtonText: {
+  modalContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 15,
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F5F5F5',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  createButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  groupDetailsModal: {
+    maxHeight: '80%', // Limit modal height
+  },
+  groupDetailsHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  groupDetailsTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    marginBottom: 4,
+  },
+  groupDetailsSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  membersSection: {
+    marginBottom: 20,
+  },
+  membersHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  membersTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  addMemberButton: {
+    backgroundColor: '#25D366',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  addMemberButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  membersList: {
+    // No specific styles needed here, FlatList handles its own
+  },
+  closeButton: {
+    backgroundColor: '#25D366',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  closeButtonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
